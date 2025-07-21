@@ -1,0 +1,436 @@
+`r if (file.exists(file.path(datasets_dir, "firm_data.csv"))) "## Heterogeneity"`
+```{r}
+# List of companies
+
+temp <-
+    df |>
+    select(firm, year) |>
+    distinct() |>
+    add_firm_data() |>
+    select(name, country, primary_sics_sector) |>
+    distinct() |>
+    arrange(primary_sics_sector, name)
+
+display_tbl <- temp |>
+    rename(Name = name, Country = country, Sector = primary_sics_sector) |>
+    arrange(Sector, Name)
+
+display_tbl <- display_tbl |>
+    group_by(Sector) |>
+    mutate(row_in_group = row_number()) |>
+    ungroup()
+
+paired_tbl <- display_tbl |>
+    mutate(pair_id = (row_in_group + 1) %/% 2) |>
+    group_by(Sector, pair_id) |>
+    summarise(
+        Name_1 = first(Name),
+        Country_1 = first(Country),
+        Name_2 = last(Name),
+        Country_2 = last(Country),
+        .groups = "drop"
+    )
+
+latex_table <- kbl(
+    paired_tbl |> select(Name_1, Country_1, Name_2, Country_2),
+    format = "latex",
+    booktabs = TRUE,
+    longtable = TRUE,
+    caption = "List of companies by name and country, grouped by SICS sector",
+    align = "ll|ll",
+    col.names = c("Name", "Country", "Name", "Country"),
+    label = "companies"
+) |>
+    kable_styling(
+        latex_options = c("repeat_header"),
+        font_size = 9,
+        full_width = FALSE,
+        position = "center"
+    ) |>
+    add_header_above(c(" " = 4)) |>
+    row_spec(0, bold = TRUE)
+
+industry_groups <- paired_tbl |>
+    mutate(row = row_number()) |>
+    group_by(Sector) |>
+    summarise(start = min(row), end = max(row), .groups = "drop")
+
+for (i in rev(seq_len(nrow(industry_groups)))) {
+    latex_table <- latex_table |>
+        group_rows(
+            group_label = industry_groups$Sector[i],
+            start_row = industry_groups$start[i],
+            end_row = industry_groups$end[i]
+        )
+}
+
+# Adjust vertical spacing and inject extra midrules
+latex_table <- paste0(
+    "\\renewcommand{\\arraystretch}{0.9}\n",
+    "\\begingroup\\fontsize{9}{11}\\selectfont\n",
+    latex_table,
+    "\\endgroup{}"
+)
+
+latex_table <- gsub(
+    "(\\\\multicolumn\\{4\\}\\{l\\}\\{\\\\textbf\\{[^}]+\\}\\}\\\\\\\\)",
+    "\\\\midrule\n\\1\n\\\\midrule",
+    latex_table,
+    perl = TRUE
+)
+
+latex_table <- paste0(
+    "\\renewcommand{\\arraystretch}{0.9}\n", # Reduce vertical space
+    latex_table
+)
+
+writeLines(latex_table, "tab-companies.tex")
+
+```
+
+
+```{r violin-plot}
+# Updated violin plot with top vs bottom 10% (vs middle 80%)
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    esg_rating_map <- c(
+        "A+" = 12, "A" = 11, "A-" = 10,
+        "B+" = 9,  "B" = 8,  "B-" = 7,
+        "C+" = 6,  "C" = 5,  "C-" = 4,
+        "D+" = 3,  "D" = 2,  "D-" = 1
+    )
+
+    # reverse-coded
+    controversy_score_map <- c(
+        "A+" = 1, "A" = 2, "A-" = 3,
+        "B+" = 4, "B" = 5, "B-" = 6,
+        "C+" = 7, "C" = 8, "C-" = 9,
+        "D+" = 10, "D" = 11, "D-" = 12
+    )
+
+    msci_company_rating_map <- c(
+        "AAA" = 7, "AA" = 6, "A" = 5,
+        "BBB" = 4, "BB" = 3, "B" = 2,
+        "CCC" = 1
+    )
+
+    # Base summarization and firm data enrichment
+    df2_enriched <- df |>
+        group_by(firm, year) |>
+        summarize(transp = mean(exists), .groups = "drop") |>
+        add_all_firm_data()
+
+    # Continue transformation
+    df2 <- df2_enriched |>
+        select(
+            firm, year, primary_sics_sector, transp,
+            mkcapUSD_lagged, salesUSD,
+            ref_esg_score, ref_esg_controversies_score_lagged,
+            msci_company_rating_lagged
+        ) |>
+        mutate(
+            ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
+            ref_esg_controversies_score_n = recode(ref_esg_controversies_score_lagged, !!!controversy_score_map),
+            msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map)
+        )
+
+
+    make_grouped_df <- function(df, quant_col) {
+        df_grouped <- df |>
+            # Compute quantile thresholds yearly
+            group_by(year) |>
+            mutate(
+                q10 = quantile(.data[[quant_col]], 0.1, na.rm = TRUE),
+                q90 = quantile(.data[[quant_col]], 0.9, na.rm = TRUE),
+                group = case_when(
+                    .data[[quant_col]] >= q90 ~ "Top 10%",
+                    .data[[quant_col]] <= q10 ~ "Bottom 10%",
+                    TRUE ~ "Middle 80%"
+                )
+            ) |>
+            ungroup() |>
+            select(-q10, -q90)
+
+        return(df_grouped)
+    }
+
+    df_mkcap_plot <- make_grouped_df(df2, "mkcapUSD_lagged")
+    # df_sales_plot <- make_grouped_df(df2, "salesUSD")
+    # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
+    df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
+    df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Function  to compare means
+    compare_means <- function(df, group_var = "group", target_group = "Top 10%", reference_group = "Middle 80%") {
+        variable_sym <- sym(group_var)
+
+        x <- df |>
+            filter((!!variable_sym) == target_group) |>
+            pull(transp) |>
+            na.omit()
+        y <- df |>
+            filter((!!variable_sym) == reference_group) |>
+            pull(transp) |>
+            na.omit()
+
+        ttest <- t.test(x = x, y = y, alternative = "two.sided")
+
+        stars <- case_when(
+            ttest$p.value < 0.001 ~ "***",
+            ttest$p.value < 0.01 ~ "**",
+            ttest$p.value < 0.05 ~ "*",
+            TRUE ~ ""
+        )
+
+        sprintf("diff = %.1f p.p.%s", abs(ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
+    }
+
+
+    # Function to plot violins
+    make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
+        df <- df |> drop_na(transp)
+
+        ggplot(df, aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
+            geom_violin(aes(fill = group), alpha = 0.5) +
+            geom_boxplot(width = 0.1, outlier.shape = NA) +
+            scale_fill_manual(values = blue_shades) +
+            scale_y_continuous(labels = scales::percent, limits = c(0, 0.75), expand = c(0, 0)) +
+            labs(x = x_label, y = "Transparency score") +
+            theme_minimal(base_size = 10) +
+            theme(
+                panel.grid.major = element_blank(),
+                panel.border = element_blank(),
+                axis.line = element_line(linewidth = 0.25),
+                axis.ticks = element_line(linewidth = 0.25),
+                legend.position = "none",
+                axis.text.y = if (x_label == "Market capitalization") element_text() else element_blank(),
+                axis.title.y = if (x_label == "Market capitalization") element_text() else element_blank()
+            ) +
+            ggpubr::geom_bracket(
+                xmin = c("Bottom 10%", "Top 10%"),
+                xmax = c("Middle 80%", "Middle 80%"),
+                y.position = bracket_y,
+                label = c(
+                    compare_means(df, "group", "Bottom 10%", "Middle 80%"),
+                    compare_means(df, "group", "Top 10%", "Middle 80%")
+                )
+            )
+    }
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    blue_shades <- c(
+        "Bottom 10%" = "#bdd7e7",
+        "Middle 80%" = "#6baed6",
+        "Top 10%" = "#2171b5"
+    )
+
+    violin_mkcap <- make_violin_plot(df_mkcap_plot, "Market capitalization")
+    # violin_sales <- make_violin_plot(df_sales_plot, "Revenue")
+    # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
+    violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
+    violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
+
+    p <- violin_mkcap + violin_msci_rating + violin_controversies +
+        plot_layout(ncol = 3) +
+
+        plot_annotation(
+            tag_levels = "a"
+        ) &
+
+        theme(
+            plot.tag = element_text(face = "bold"),
+            plot.caption = ggtext::element_textbox_simple(hjust = 0),
+            plot.caption.position = "plot"
+        )
+
+    p
+
+    ggsave(
+        here("fig", "fig-heterogeneity-companies.pdf"),
+        p,
+        width = 9.5, height = 5, dpi = 300, units = "in", device = "pdf"
+    )
+
+    knitr::include_graphics(here("fig/fig-heterogeneity-companies.pdf"))
+}
+```
+
+```{r panel-regression}
+# Panel regression
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Base summarization and firm data enrichment
+    df2_enriched <- df |>
+        group_by(firm, year) |>
+        summarize(
+            transp = mean(exists),
+            .groups = "drop"
+        ) |>
+        add_all_firm_data()
+
+    # Finalize all transformations
+    df2 <- df2_enriched |>
+        mutate(
+            sector = primary_sics_sector,
+            ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
+            ref_esg_contr_n = recode(ref_esg_controversies_score_lagged, !!!controversy_score_map),
+            msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map),
+            mkcapUSD_log = log(mkcapUSD_lagged)
+        ) |>
+        select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |>
+        pivot_longer(
+            cols = c(mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n)
+        ) |>
+        # Compute quantile thresholds yearly
+        group_by(name, year) |>
+        mutate(
+            q90 = value >= quantile(value, 0.9, na.rm = TRUE),
+            q10 = value <= quantile(value, 0.1, na.rm = TRUE)
+        ) |>
+        ungroup()
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # panel a
+    panel_a <-
+        modelsummary(
+            list(
+                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90),
+                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | year),
+                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector),
+                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
+                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
+            ),
+            stars = c("***" = .01, "**" = .05, "*" = 0.1),
+            coef_map = c(
+                "(Intercept)" = "Constant",
+                "q90TRUE" = "Top-10\\% market capitalization",
+                "q10TRUE" = "Bottom-10\\% market capitalization"
+            ),
+            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
+            output = "latex"
+        ) |>
+        as.character()
+
+    # panel b
+    panel_b <-
+        modelsummary(
+            list(
+                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90),
+                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | year),
+                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector),
+                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
+                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
+            ),
+            stars = c("***" = .01, "**" = .05, "*" = 0.1),
+            coef_map = c(
+                "(Intercept)" = "Constant",
+                "q90TRUE" = "Top-10\\% ESG rating",
+                "q10TRUE" = "Bottom-10\\% ESG rating"
+            ),
+            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
+            output = "latex"
+        ) |>
+        as.character()
+
+    # panel c
+    panel_c <-
+        modelsummary(
+            list(
+                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90),
+                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | year),
+                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector),
+                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
+                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
+            ),
+            stars = c("***" = .001, "**" = .01, "*" = 0.05),
+            coef_map = c(
+                "(Intercept)" = "Constant",
+                "q90TRUE" = "Top-10\\% ESG controversies score",
+                "q10TRUE" = "Bottom-10\\% ESG controversies score"
+            ),
+            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
+            output = "latex"
+        ) |>
+        as.character()
+
+    # now, merge together
+    footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The independent variable is a dummy of whether a company is in the top-10\\% (or bottom-10\\%) of market capitalization, ESG rating, or ESG controversies scores, respectively. Panel~A reports results using market capitalization as the main independent variable. Panel~B uses Refinitiv's ESG rating, and panel~C uses the ESG controversies score from Refinitiv. The models vary by the set of included fixed effects (FE): Model~(1) includes no fixed effects; Model~(2) includes year fixed effects; Model~(3) includes sector fixed effects; Model~(4) includes year-by-sector fixed effects; and Model~(5) includes company fixed effects. Standard errors are clustered by company and included in parentheses. Significance levels: ***, **, and * indicate statistical significance at the 0.1\\%, 1\\%, and 5\\% level, respectively. Estimates are based on ordinary least squares (OLS) regression. We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For companies in the bottom-10\\% of ESG controversies, i.e., companies with less controversies around their ESG practices, we find lower levels of transparency, potentially indicating the disciplining effect of exteranal pressure."
+
+
+    ltx <- c(
+        "\\begin{table}[!htbp]",
+        "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
+        "\\caption{\\label{tab:regression-transp}Determinants of transparency.}",
+        "\\centering",
+        "\\begin{threeparttable}",
+        "",
+        # --- Panel a ---------------------------------
+        "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\",
+        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
+        "\\toprule",
+        unlist(strsplit(panel_a, "\n"))[12:18],
+        "\\midrule",
+        "Year FE          & No & Yes & No  & ---   & ---  \\\\",
+        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
+        "Year $\\times$ Sector FE & No & No  & No  & Yes & Yes \\\\",
+        "Company FE          & No & No  & No  & No  & Yes \\\\",
+        "\\midrule",
+        unlist(strsplit(panel_a, "\n"))[19:20],
+        "\\bottomrule",
+        "\\end{tabularx}", "", "\\vspace{1em}",
+        # --- Panel b ---------------------------------
+        "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\",
+        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
+        "\\toprule",
+        unlist(strsplit(panel_b, "\n"))[12:18],
+        "\\midrule",
+        "Year FE          & No & Yes & No  & ---   & ----   \\\\",
+        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
+        "Year $\\times$ Sector FE & No & No  & No  & Yes & Yes \\\\",
+        "Company FE          & No & No  & No  & No  & Yes \\\\",
+        "\\midrule",
+        unlist(strsplit(panel_b, "\n"))[19:20],
+        "\\bottomrule",
+        "\\end{tabularx}", "", "\\vspace{1em}",
+        # --- Panel c ---------------------------------
+        "\\multicolumn{6}{l}{\\textit{Panel C: Transparency by ESG rating controversies}} \\\\",
+        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
+        "\\toprule",
+        unlist(strsplit(panel_c, "\n"))[12:18],
+        "\\midrule",
+        "Year FE          & No & Yes & No  & ---   & ---   \\\\",
+        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
+        "Year x Sector FE & No & No  & No  & Yes & Yes \\\\",
+        "Company FE          & No & No  & No  & No  & Yes \\\\",
+        "\\midrule",
+        unlist(strsplit(panel_c, "\n"))[19:20],
+        "\\bottomrule",
+        "\\end{tabularx}", "", "\\vspace{1em}",
+        # --- Notes ---------------------------------
+        "\\begin{tablenotes}[para, flushleft]",
+        "\\scriptsize",
+        "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+        "\\footnotetext",
+        sprintf("\\item \\textbf{Notes:} %s", footnote_text),
+        "\\end{tablenotes}",
+        "\\end{threeparttable}",
+        "\\end{table}"
+    )
+
+    ltx_final <- gsub("Num.Obs.", "$N$", ltx)
+    ltx_final <- gsub("R2 Adj.", "Adj. $R^2$", ltx_final)
+
+    writeLines(
+        paste(ltx_final, collapse = "\n"),
+        "tab-regression_transp.tex"
+    )
+}
+```

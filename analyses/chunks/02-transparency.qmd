@@ -1,0 +1,476 @@
+
+```{r}
+std_levels <- c(
+    "Climate change",
+    "Pollution",
+    "Water",
+    "Biodiversity",
+    "Circular economy",
+    "Own workforce",
+    "Consumers",
+    "Governance",
+    "Business conduct"
+)
+
+colors <- c(
+    "Climate change"   = "#1C4A29",
+    "Pollution"        = "#2E6F40",
+    "Water"            = "#419759",
+    "Biodiversity"     = "#55C173",
+    "Circular economy" = "#6AEC8E",
+    "Own workforce"    = "#6F2E5D",
+    "Consumers"        = "#D661B5",
+    "Governance"       = "#485DA5",
+    "Business conduct" = "#6D81CD"
+)
+
+shapes_line <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 22,
+    "Biodiversity"     = 4,
+    "Circular economy" = 23,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+
+shapes_scatter <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 0,
+    "Biodiversity"     = 4,
+    "Circular economy" = 5,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+```
+
+```{r}
+df <- df |> mutate(standard_topic = ifelse(standard_topic == "General", "Governance", standard_topic))
+```
+
+```{r}
+p1 <-
+    df |>
+    mutate(
+        std = factor(paste0(standard_topic), levels = std_levels)
+    ) |>
+    group_by(firm, year, std) |>
+    summarize(count_reported = sum(exists), .groups = "drop") |>
+    group_by(year, std) |>
+    summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+    ggplot(aes(
+        x = factor(year),
+        y = avg_reported,
+        fill = std
+    )) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = colors) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 200)) +
+    labs(x = NULL, y = "# ESG indicators", fill = "Topic") +
+    theme(
+        text = element_text(size = 11),
+        axis.line = element_line(linewidth = 0.5),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_line(),
+        legend.key.height = unit(10, "pt"),
+        legend.position = "right",
+        legend.box.margin = margin(0, 0, 0, 0),
+        # legend.margin     = margin(l = -150)
+    )
+
+ggsave(
+    here("fig", "fig-over_time.pdf"),
+    p1,
+    width = 6, height = 3, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-over_time.pdf"))
+```
+
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    df_extended <- df |>
+        add_all_firm_data()
+
+    # MSCI rating development over sample period
+    msci_company_rating_map <- c(
+        "AAA" = 1, "AA" = 2, "A" = 3,
+        "BBB" = 4, "BB" = 5, "B" = 6,
+        "CCC" = 7
+    )
+
+    check <- df_extended |>
+        distinct(firm, year, msci_company_rating_lagged) |>
+        mutate(
+            msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map)
+        ) |>
+        group_by(year) |>
+        summarize(mean = mean(msci_company_rating_n, na.rm = TRUE))
+}
+
+```
+
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Calculate deciles on yearly basis
+
+    # select rating: (1) msci_company_rating, (2) ref_esg_score, (3) ref_esg_combined_score, (4) msci_company_rating_lagged
+    selected_rating <- "msci_company_rating_lagged"
+
+    # numeric rating mapping for ratings
+    rating_orders <- list(
+        ref_esg_score = c("A+" = 1, "A" = 2, "A-" = 3, "B+" = 4, "B" = 5, "B-" = 6, "C+" = 7, "C" = 8, "C-" = 9, "D+" = 10, "D" = 11, "D-" = 12),
+        msci_company_rating = c("AAA" = 1, "AA" = 2, "A" = 3, "BBB" = 4, "BB" = 5, "B" = 6, "CCC" = 7),
+        ref_esg_combined_score = c("A+" = 1, "A" = 2, "A-" = 3, "B+" = 4, "B" = 5, "B-" = 6, "C+" = 7, "C" = 8, "C-" = 9, "D+" = 10, "D" = 11, "D-" = 12),
+        msci_company_rating_lagged = c("AAA" = 1, "AA" = 2, "A" = 3, "BBB" = 4, "BB" = 5, "B" = 6, "CCC" = 7)
+    )
+
+    temp <- df |>
+        add_all_firm_data() |>
+        mutate(
+            rating_score =
+                if (selected_rating %in% names(rating_orders)) {
+                    rating_orders[[selected_rating]][as.character(!!sym(selected_rating))]
+                } else {
+                    as.numeric(!!sym(selected_rating))
+                }
+        )
+
+    # Compute top/bottom 10% rating groups per year (Option 2)
+    esg_ratings_yearly <- temp |>
+        group_by(year) |>
+        filter(!is.na(rating_score)) |>
+        mutate(
+            top_n_threshold = quantile(rating_score, probs = 0.10, na.rm = TRUE),
+            bottom_n_threshold = quantile(rating_score, probs = 0.90, na.rm = TRUE),
+            rating_group = case_when(
+                rating_score <= top_n_threshold ~ "Top 10% rated companies",
+                rating_score >= bottom_n_threshold ~ "Bottom 10% rated companies",
+                TRUE ~ "Middle 80%"
+            )
+        ) |>
+        ungroup() |>
+        select(firm, year, rating_group) |>
+        distinct(firm, year, rating_group)
+
+    # Join back to main data
+    temp <- temp |>
+        left_join(esg_ratings_yearly, by = c("firm", "year"))
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Check differences between 2014 - 2023
+    check <- temp |>
+        mutate(std = factor(standard_topic, levels = std_levels)) |>
+        group_by(firm, year, std) |>
+        summarize(count_reported = sum(exists), .groups = "drop") |>
+        group_by(year, std) |>
+        summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+        filter(year %in% c(2014, 2023)) |>
+        pivot_wider(
+            names_from = year,
+            values_from = avg_reported,
+            names_prefix = "avg_"
+        ) |>
+        mutate(
+            diff_2023_2014 = avg_2023 - avg_2014,
+            pct_change = (avg_2023 - avg_2014) / avg_2014 * 100
+        )
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Panel a - all companies
+    p1_rating_all <- temp |>
+        mutate(std = factor(standard_topic, levels = std_levels)) |>
+        group_by(firm, year, std) |>
+        summarize(count_reported = sum(exists), .groups = "drop") |>
+        group_by(year, std) |>
+        summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+        ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+        geom_bar(stat = "identity", position = "stack") +
+        scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+        scale_fill_manual(values = colors) +
+        scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+        labs(x = NULL, y = "# ESG indicators", fill = "ESRS Topic") +
+        ggtitle("All companies") +
+        theme(
+            plot.title = element_text(size = 13),
+            text = element_text(size = 11),
+            axis.line = element_line(linewidth = 0.5),
+            panel.border = element_blank(),
+            panel.grid.major = element_blank(),
+            axis.ticks = element_line(),
+            legend.position = "none",
+            strip.background = element_blank(),
+            strip.text = element_text(size = 11, face = "bold")
+        )
+
+    # Panel b - Top 10% ÉSG ratings
+    p1_rating_top10 <- temp |>
+        # # Option 1
+        # filter(rating_group == "Leaders") |>
+        # Option 2
+        filter(rating_group == "Top 10% rated companies") |>
+        mutate(std = factor(standard_topic, levels = std_levels)) |>
+        group_by(firm, year, std) |>
+        summarize(count_reported = sum(exists), .groups = "drop") |>
+        group_by(year, std) |>
+        summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+        ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+        geom_bar(stat = "identity", position = "stack") +
+        scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+        scale_fill_manual(values = colors) +
+        scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+        labs(x = NULL, y = NULL, fill = "ESRS Topic") +
+        # # Option 1
+        # ggtitle("Sustainability leaders") +
+        # Option 2
+        ggtitle("Top 10% rated") +
+        theme(
+            plot.title = element_text(size = 13),
+            text = element_text(size = 11),
+            axis.text.x = element_text(),
+            axis.ticks.x = element_line(),
+            axis.line.x = element_line(size = 0.3),
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.line.y = element_blank(),
+            panel.border = element_blank(),
+            panel.grid.major = element_blank(),
+            legend.position = "none",
+            strip.background = element_blank(),
+            strip.text = element_text(size = 11, face = "bold")
+        )
+
+    # Panel c - Bottom 10% ÉSG ratings
+    p1_rating_bottom10 <- temp |>
+        # # Option 1
+        # filter(rating_group == "Laggards") |>
+        # Option 2
+        filter(rating_group == "Bottom 10% rated companies") |>
+        mutate(std = factor(standard_topic, levels = std_levels)) |>
+        group_by(firm, year, std) |>
+        summarize(count_reported = sum(exists), .groups = "drop") |>
+        group_by(year, std) |>
+        summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+        ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+        geom_bar(stat = "identity", position = "stack") +
+        scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+        scale_fill_manual(values = colors) +
+        scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+        labs(x = NULL, y = NULL, fill = "ESRS Topic") +
+        # # Option 1
+        # ggtitle("Sustainability laggards") +
+        # Option 2
+        ggtitle("Bottom 10% rated") +
+        theme(
+            plot.title = element_text(size = 13),
+            text = element_text(size = 11),
+            axis.text.x = element_text(),
+            axis.ticks.x = element_line(),
+            axis.line.x = element_line(size = 0.3),
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.line.y = element_blank(),
+            panel.border = element_blank(),
+            panel.grid.major = element_blank(),
+            legend.position = "none",
+            strip.background = element_blank(),
+            strip.text = element_text(size = 11, face = "bold")
+        )
+
+    pfinal_rating <- (p1_rating_all | p1_rating_top10 | p1_rating_bottom10) +
+        plot_layout(guides = "collect") +
+        plot_annotation(tag_levels = "a") &
+        theme(
+            plot.tag = element_text(face = "bold"),
+            legend.position = "right",
+            legend.direction = "vertical"
+        )
+
+    ggsave(
+        here("fig", "fig-transparency_rating.pdf"),
+        pfinal_rating,
+        width = 10, height = 4, dpi = 400, units = "in", device = "pdf"
+    )
+
+    knitr::include_graphics(here("fig/fig-transparency_rating.pdf"))
+}
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Check differences between ratings groups
+    check <- temp |>
+        mutate(std = factor(standard_topic, levels = std_levels)) |>
+        group_by(firm, year, rating_group) |>
+        summarize(count_reported = sum(exists), .groups = "drop") |>
+        group_by(year, rating_group) |>
+        summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+        # filter(year == 2023) |>
+        filter(rating_group %in% c("Top 10% rated companies", "Bottom 10% rated companies")) |>
+        pivot_wider(
+            names_from = rating_group,
+            values_from = avg_reported,
+            names_prefix = "avg_"
+        ) |>
+        mutate(
+            diff_top_bottom = `avg_Top 10% rated companies` / `avg_Bottom 10% rated companies` - 1
+        )
+}
+```
+
+```{r}
+# Add aggregate benchmark transparency to time series plot (p2)
+overall_p2 <-
+    df |>
+    group_by(firm, year) |>
+    summarize(transp = mean(exists), .groups = "drop") |>
+    group_by(year) |>
+    summarize(transp = mean(transp), .groups = "drop") |>
+    mutate(
+        label = "Overall",
+        group = "Overall"
+    )
+
+# Rebuild p2
+p2 <-
+    df |>
+    group_by(firm, year, topic, standard, standard_topic) |>
+    summarize(transp = mean(exists), .groups = "drop") |>
+    group_by(year, topic, standard, standard_topic) |>
+    summarize(transp = mean(transp), .groups = "drop") |>
+    mutate(
+        label = paste0(standard_topic),
+        group = ifelse(topic == "env", "Environmental", "Social and Governance")
+    ) |>
+    bind_rows(overall_p2) |>
+    mutate(
+        label = factor(label, levels = c("Overall", std_levels))
+    ) |>
+    ggplot(aes(
+        x = factor(year),
+        y = transp,
+        color = label,
+        shape = label,
+        group = label
+    )) +
+    geom_line() +
+    geom_point(size = 2, fill = "white", stroke = 1) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+    scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+    scale_shape_manual(values = c("Overall" = 16, shapes_line)) +
+    labs(x = NULL, y = "Transparency score", color = "ESRS Topic", shape = "ESRS Topic") +
+    theme(
+        text = element_text(color = "black", size = 10),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        legend.key.height = unit(10, "pt"),
+        legend.position = "left",
+        legend.box.margin = margin(r = -120),
+        axis.title.y = element_text(vjust = -55)
+    )
+
+# Add aggregate benchmark to sectoral scatter plot (p3)
+overall_p3 <-
+    df |>
+    group_by(firm, year) |>
+    summarize(transp = mean(exists), .groups = "drop") |>
+    add_all_firm_data() |>
+    group_by(primary_sics_sector) |>
+    summarize(transp = mean(transp), .groups = "drop") |>
+    filter(!is.na(primary_sics_sector)) |>
+    mutate(
+        std = "Overall",
+    )
+
+sector_order <- overall_p3 |>
+    arrange(transp) |>
+    pull(primary_sics_sector)
+
+# Rebuild p3
+p3 <-
+    df |>
+    mutate(std = paste0(standard_topic)) |>
+    group_by(firm, year, topic, std, standard) |>
+    summarize(transp = mean(exists), .groups = "drop") |>
+    add_all_firm_data() |>
+    group_by(primary_sics_sector, topic, std, standard) |>
+    summarize(transp = mean(transp), .groups = "drop") |>
+    filter(!is.na(primary_sics_sector)) |>
+    bind_rows(overall_p3) |>
+    mutate(
+        primary_sics_sector = factor(primary_sics_sector, levels = sector_order),
+        std = factor(std, levels = c("Overall", std_levels))
+    ) |>
+    ggplot(aes(
+        x = transp,
+        y = primary_sics_sector,
+        color = std,
+        shape = std
+    )) +
+    geom_point(size = 2, stroke = 1) +
+    scale_x_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+    scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+    scale_shape_manual(values = c("Overall" = 16, shapes_scatter)) +
+    labs(x = "Transparency score", y = "", shape = "ESRS Topic", color = "ESRS Topic") +
+    theme(
+        text = element_text(color = "black", size = 10),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none"
+    )
+
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 6
+
+p3 <- p3 +
+    guides(color = "none", shape = "none")
+
+pfinal <- p2 / p3 +
+    plot_layout(
+        heights = c(1, 1.4),
+        guides = "collect"
+    ) +
+    plot_annotation(
+        tag_levels = "a",
+    ) &
+    theme(
+        plot.tag = element_text(face = "bold"),
+        plot.caption = ggtext::element_textbox_simple(hjust = 0),
+        plot.caption.position = "plot",
+        legend.position = "right",
+        legend.justification = "center"
+    )
+
+ggsave(
+    here("fig", "fig-transparency.pdf"),
+    pfinal,
+    width = 8, height = 6, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-transparency.pdf"))
+
+```
+

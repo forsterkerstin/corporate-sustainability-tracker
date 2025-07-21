@@ -1,0 +1,32 @@
+# Data
+data/
+
+# Documentation (internal)
+docs/
+
+# DEV Notebooks
+notebooks_dev/
+
+# Figures
+fig/
+
+# Logs
+logs*/
+
+# Virtual environment
+.venv/
+.conda/
+
+# VSCode
+.vscode/
+
+# Python cache files
+__pycache__/
+
+# Mac
+*.DS_Store
+.Rproj.user
+
+# R files
+.RData
+.Rhistory

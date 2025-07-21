@@ -1,0 +1,26 @@
+# Env
+.env
+
+# Figure directory
+fig/
+
+# PDF files
+*.pdf
+
+# PNG files
+*.png
+
+# TEX files
+*.tex
+
+# R files
+.Rproj.user
+*.Rproj
+.Rhistory
+.RData
+
+# Quarto rendering dirs
+analyses_cache/
+
+# Mac
+*.DS_Store

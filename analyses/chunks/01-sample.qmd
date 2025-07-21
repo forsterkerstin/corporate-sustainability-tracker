@@ -1,0 +1,189 @@
+```{r}
+library(stringr)
+reports <- read_csv(file.path(results_dir, "reports_per_company_year.csv")) |> 
+  mutate(
+    year = as.integer(sub(".*_(\\d{4})$", "\\1", company_year)),
+    report_list = str_extract_all(reports, "'([^']+\\.pdf)'"),
+    reports = map_int(report_list, length),
+    sr_reports = map_int(report_list, ~ sum(str_detect(.x, "_SR\\.pdf"))),
+    ar_reports = map_int(report_list, ~ sum(str_detect(.x, "_AR\\.pdf")))
+  )
+
+```
+
+
+```{r plot-reports-over-time}
+
+plot_data <- reports |> 
+  group_by(year) |> 
+  summarize(
+    sr_count = sum(sr_reports, na.rm = TRUE),
+    ar_count = sum(ar_reports, na.rm = TRUE)
+  ) |> 
+  pivot_longer(cols = c(sr_count, ar_count), names_to = "report_type", values_to = "count") |> 
+  mutate(
+    report_type = recode(report_type,
+                         sr_count = "Sustainability Report",
+                         ar_count = "Annual Report")
+  )
+
+plot_data$report_type <- factor(plot_data$report_type, levels = c("Annual Report", "Sustainability Report"))
+
+plot_overtime <- ggplot(plot_data, aes(x = factor(year), y = count, fill = report_type)) +
+  geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
+  scale_fill_manual(values = c(
+    "Sustainability Report" = "#9FE2BF",
+    "Annual Report" = "#FF7F50"
+  )) +
+  scale_y_continuous(limits = c(0, 1100), expand = c(0, 0)) +
+  labs(y = "# Reports", x = "", fill = "Report type") +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 11),
+    axis.line = element_line(linewidth = 0.5),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.ticks = element_line(),
+    legend.position = c(0.15, 0.93),
+    legend.direction = "vertical"
+  )
+
+ggsave(
+  here("fig", "fig-documents.pdf"),
+  plot_overtime,
+  width = 6, height = 4.5, dpi = 400, units = "in", device = 'pdf'
+)
+
+```
+
+```{r create-map-data}
+label_data <- df |> 
+    group_by(firm, year) |> 
+    tally() |> 
+    add_all_firm_data() |> 
+    select(firm, country) |> 
+    unique() |> 
+    group_by(country) |> 
+    tally() |> 
+    mutate(
+        country = recode(country, "United Kingdom" = "UK")
+    ) |> 
+    rename(region = country) |> 
+    left_join(map_data("world"), by = "region") |>
+    group_by(region) |>
+    summarize(long = mean(long), lat = mean(lat), n = mean(n)) |>
+    mutate(
+        long = case_when(
+            region == "UK" ~ -1.5,
+            region == "Sweden" ~ 15.5,
+            region == "Norway" ~ 9,
+            region == "Italy" ~ 12.5,
+            region == "Finland" ~ 25,
+            region == "Austria" ~ 14.5,
+            region == "Denmark" ~ 9,
+            TRUE ~ long
+        ),
+        lat = case_when(
+            region == "UK" ~ 52.5,
+            region == "Sweden" ~ 62.5,
+            region == "Norway" ~ 60,
+            region == "Italy" ~ 43,
+            region == "Finland" ~ 62,
+            region == "Denmark" ~ 56,
+            TRUE ~ lat
+            )
+        )
+
+europe_map <- 
+    map_data("world") |> 
+    filter(region %in% c(
+        "UK", "Ireland", "France", "Germany", "Belgium", "Netherlands", "Luxembourg", 
+        "Switzerland", "Austria", "Denmark", "Norway", "Sweden", "Finland", "Iceland", "Spain", 
+        "Portugal", "Italy", "Greece", "Poland", "Czech Republic", "Slovakia", "Hungary", "Slovenia",
+        "Croatia", "Bosnia and Herzegovina", "Serbia", "Montenegro", "Kosovo", "Albania", "North Macedonia",
+        "Bulgaria", "Romania", "Lithuania", "Latvia", "Estonia", "Ukraine", "Belarus", "Lichtenstein", "Russia",
+        "Moldova"
+    )) |> 
+    mutate(has_data = ifelse(region %in% label_data$region, "With Data", "No Data"))
+
+
+plot_map <- 
+    ggplot() +
+    # background map
+    geom_polygon(data = europe_map, aes(x = long, y = lat, group = group, fill = has_data),
+                 color = "white", linewidth = 0.25) +
+    scale_fill_manual(values = c("No Data" = "gray85", "With Data" = "gray60"), 
+                      guide = "none") +  
+
+    # overlay
+    new_scale_fill() +
+    geom_map(data = label_data, aes(map_id = region, fill = n), map = europe_map, 
+             linewidth = 0.5, color = "white", inherit.aes = FALSE) +
+    scale_fill_gradient2(
+        low = "#F7FBFF",          # very light blue
+        mid = "#B7D5EA",          # your desired midpoint color
+        high = "#08306B",         # deep navy blue
+        midpoint = 75,            # assuming midpoint reflects average or median
+        name = "# Companies",
+        limits = c(0, 150),
+        breaks = c(0, 25, 50, 75, 100, 125, 150),
+        guide = guide_colorbar(
+            title.position = "top",
+            barwidth = 25,
+            barheight = 0.5
+        )
+    ) +
+    # labels
+    geom_label(
+        data = label_data,
+        mapping = aes(x = long, y = lat, label = n, color = region), 
+        fill = NA, 
+        size = 3,
+        label.size = 0
+    ) +
+    scale_color_manual(
+        values = c("UK" = "white"),
+        breaks = c("UK"),
+        na.value = "black",
+        guide = "none"
+      ) +
+
+    expand_limits(x = europe_map$long, y = europe_map$lat) + 
+    coord_cartesian(ylim = c(36, 70), xlim = c(-10, 31)) +
+    theme_void() +
+    theme(
+        legend.position = "bottom",
+        #legend.background = element_rect(fill = "white", color = "white"),
+        legend.direction = "horizontal",
+        legend.title.align = 0.5,
+        legend.margin = margin(t = 5, b = 5)
+        )
+
+ggsave(
+    here("fig", "fig-map.png"),
+    plot_map,
+    width = 6, height = 7, dpi = 400, units = "in", device = 'png'
+)
+
+```
+
+```{r sample}
+#| fig-width: 7
+#| fig-height: 4
+
+plot_overtime + plot_map + 
+    plot_annotation(
+        tag_levels = "a",
+        caption = "**Fig 2. Data overview.** **a** Number and type of corporate report analyzed per year. **b** Geographical dispersion of the sample firms."
+        ) &
+    theme(
+        plot.tag = element_text(face = "bold"),
+        plot.caption = ggtext::element_textbox_simple(hjust = 0),
+        plot.caption.position = "plot"
+        )
+
+
+```
+
+
+\newpage

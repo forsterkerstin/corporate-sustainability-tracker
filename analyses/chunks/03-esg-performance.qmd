@@ -1,0 +1,1393 @@
+
+```{r}
+temp <- df |>
+    add_all_firm_data() |>
+    mutate(value_final = as.numeric(value_final))
+
+```
+
+## 3.1 Environmental performance
+
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+selected_indicators <- c(
+    "Total scope 1 emissions [tCO₂eq]",
+    "Total scope 2 emissions (market-based) [tCO₂eq]",
+    "Total scope 3 emissions [tCO₂eq]",
+    # "Scope 3 emissions (Cloud computing and data center services) [tCO₂eq]",
+    "Category 6 Travel [tCO₂eq]",
+    # "Scope 3 emissions (Commuting) [tCO₂eq]",
+    "Energy consumption [MWh]",
+    "Renewable sources in total energy consumption [%]",
+    # "Fossil sources in total energy consumption [%]",
+    "Water consumption [m³]",
+    "Total waste generated [t]",
+    "Non-recycled waste [%]"
+)
+
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+grouping_info <- temp |>
+    mutate(label_specification = recode(label_specification, !!!renamer_env)) |>
+    filter(topic == "env", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    mutate(total = n()) |>
+    group_by(label_specification, year) |>
+    summarise(
+        n = n(),
+        .groups = "drop"
+    ) |>
+    mutate(
+        n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+        n_group = factor(n_group, levels = n_labels) # enforce consistent order
+    )
+
+p_env <- temp |>
+    select(firm, year, topic, label_specification, value_final) |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_env),
+        label_specification = factor(label_specification, levels = unname(renamer_env))
+    ) |>
+    filter(topic == "env", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification, year) |>
+    ungroup() |>
+    group_by(label_specification, year) |>
+    summarise(
+        p10 = quantile(value_final, 0.10, na.rm = TRUE),
+        q1 = quantile(value_final, 0.25, na.rm = TRUE),
+        median = quantile(value_final, 0.50, na.rm = TRUE),
+        q3 = quantile(value_final, 0.75, na.rm = TRUE),
+        p90 = quantile(value_final, 0.90, na.rm = TRUE),
+        .groups = "drop"
+    ) |>
+    left_join(grouping_info, by = c("label_specification", "year")) |>
+    mutate(n_group = factor(n_group, levels = n_labels))
+
+n_values <- temp |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_env),
+        label_specification = factor(label_specification, levels = unname(renamer_env))
+    ) |>
+    filter(topic == "env", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    summarise(n = n(), .groups = "drop")
+
+# set y axis limits independently for emission metrics
+emission_indicators <- c(
+    "Total Scope 1 emissions [tCO₂eq]",
+    "Total scope 2 emissions (market-based) [tCO₂eq]",
+    "Total scope 3 emissions [tCO₂eq]",
+    "Category 6 Travel [tCO₂eq]"
+)
+
+shared_emission_max <- p_env |>
+    filter(label_specification %in% emission_indicators) |>
+    summarise(ymax = max(p90, q3, na.rm = TRUE)) |>
+    pull(ymax) * 1.1
+
+
+plotting <- function(indicator) {
+    indicator_title <- switch(indicator,
+        "Total scope 1 emissions [tCO₂eq]" = expression(Total ~ scope ~ 1 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Total scope 2 emissions (market-based) [tCO₂eq]" = expression(Total ~ scope ~ 2 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Total scope 3 emissions [tCO₂eq]" = expression(Total ~ Scope ~ 3 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Scope 3 emissions (Cloud computing and data center services) [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Cloud ~ computing ~ and ~ data ~ center ~ services) ~ "[tCO"[2] * "eq"),
+        "Category 6 Travel [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Travel) ~ "[tCO"[2] * "eq]"),
+        "Scope 3 emissions (Commuting) [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Commuting) ~ "[tCO"[2] * "eq"),
+        "Energy consumption [MWh]" = expression(Energy ~ consumption ~ "[MWh]"),
+        "Renewable sources in total energy consumption [%]" = expression(atop("Renewable sources in total", "energy consumption [%]")),
+        "Fossil sources in total energy consumption [%]" = expression(atop("Fossil sources in total", "energy consumption [%]")),
+        "Water consumption [m³]" = expression(Water ~ consumption ~ "[m"^3 * "]"),
+        "Total waste generated [t]" = expression(Total ~ waste ~ generated ~ "[t]"),
+        "Non-recycled waste [%]" = expression("Non-recycled waste [%]"),
+        expression(.(indicator))
+    )
+    data_filtered <- p_env |>
+        filter(label_specification == indicator) |>
+        mutate(n_group = factor(n_group, levels = n_labels)) |>
+        complete(
+            year,
+            label_specification,
+            n_group = factor(n_labels, levels = n_labels)
+        )
+
+    n_label <- n_values |>
+        filter(label_specification == indicator) |>
+        pull(n)
+
+    label_n <- paste0("italic(n)==", n_label)
+
+    # Compute percentage changes from 2014 to 2023 for annotations
+    median_change <- p_env |>
+        filter(label_specification == indicator, year %in% c(2014, 2023)) |>
+        group_by(year) |>
+        summarise(median = median(median, na.rm = TRUE), .groups = "drop") |>
+        pivot_wider(names_from = year, values_from = median, names_prefix = "y")
+
+    if (all(c("y2014", "y2023") %in% names(median_change)) &&
+        !is.na(median_change$y2014) &&
+        !is.na(median_change$y2023) &&
+        median_change$y2014 != 0) {
+        pct_change <- ((median_change$y2023 - median_change$y2014) / median_change$y2014) * 100
+        change_label <- paste0("Δ: ", ifelse(pct_change > 0, "+", ""), round(pct_change, 1), "%")
+    } else {
+        change_label <- "Δ: n.a."
+    }
+
+    change_grob <- grid::textGrob(
+        label = change_label,
+        x = unit(0.98, "npc"),
+        y = unit(0.90, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 13, col = "gray30")
+    )
+
+    # use dynamic y-axis limits
+    y_min_raw <- min(data_filtered$p10, data_filtered$q1, na.rm = TRUE)
+    y_min <- if (y_min_raw < 1) 1 else 1 # set limits  <1 if needed
+
+    y_max <- if (indicator %in% emission_indicators) {
+        shared_emission_max
+    } else {
+        max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+    }
+
+    p <- ggplot(data_filtered, aes(x = year))
+
+    if (indicator == "Category 6 Travel [tCO₂eq]") {
+        # add shaded area in the background
+        p <- p +
+            geom_rect(
+                aes(xmin = 2020, xmax = 2023, ymin = 1, ymax = 9000000),
+                fill = "grey85", alpha = 0.3
+            ) +
+
+            # add annotation text in the foreground
+            annotate(
+                "text",
+                x = 2020.3, y = 500000,
+                label = "COVID-19\npandemic",
+                hjust = 0, size = 4, color = "grey30"
+            )
+    }
+
+    p <- p +
+        geom_ribbon(
+            data = filter(data_filtered, !is.na(q1) & !is.na(q3)),
+            aes(ymin = q1, ymax = q3), fill = "#CFFCD8", alpha = 0.3
+        ) +
+        geom_line(
+            data = filter(data_filtered, !is.na(q1)),
+            aes(y = q1, color = "25th"), linetype = "dashed"
+        ) +
+        geom_line(
+            data = filter(data_filtered, !is.na(median)),
+            aes(y = median, color = "50th"), size = 1
+        ) +
+        geom_line(
+            data = filter(data_filtered, !is.na(q3)),
+            aes(y = q3, color = "75th"), linetype = "dashed"
+        ) +
+        geom_point(aes(y = median, shape = n_group, size = n_group, fill = n_group),
+            color = "#2E6F40"
+        ) +
+        geom_line(
+            data = filter(data_filtered, !is.na(p10)),
+            aes(y = p10, color = "10th"), linetype = "dashed", linewidth = 0.6
+        ) +
+        geom_line(
+            data = filter(data_filtered, !is.na(p90)),
+            aes(y = p90, color = "90th"), linetype = "dashed", linewidth = 0.6
+        )
+
+    if (indicator %in% c(
+        "Renewable sources in total energy consumption [%]",
+        "Non-recycled waste [%]"
+    )) {
+        p <- p +
+            scale_y_continuous(
+                limits = c(
+                    min(data_filtered$p10, na.rm = TRUE) * 0.9,
+                    max(data_filtered$p90, na.rm = TRUE) * 1.1
+                ),
+                labels = scales::comma_format()
+            )
+    } else {
+        p <- p +
+            scale_y_continuous(
+                trans = "log10",
+                labels = scales::comma_format(),
+                limits = c(1, y_max),
+                oob = scales::oob_keep
+            )
+    }
+
+    p <- p +
+        scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+        scale_color_manual(values = c(
+            "10th" = "#55C173",
+            "25th" = "#419759",
+            "50th" = "#2E6F40",
+            "75th" = "#419759",
+            "90th" = "#55C173"
+        ), name = "Percentiles") +
+        scale_shape_manual(
+            values = setNames(c(21, 21, 21), n_labels),
+            name = expression(bold("Reporting intensity (" * italic(n) * ")")),
+            guide = guide_legend(
+                override.aes = list(
+                    fill = c("white", "#2E6F40", "#2E6F40"),
+                    size = c(3.5, 5.5, 5.5)
+                )
+            ),
+            drop = FALSE
+        ) +
+        scale_fill_manual(
+            values = setNames(c("white", "#2E6F40", "#2E6F40"), n_labels),
+            drop = FALSE
+        ) +
+        scale_size_manual(
+            values = setNames(c(3.5, 3.5, 5.5), n_labels),
+            drop = FALSE
+        ) +
+        guides(
+            fill = "none",
+            size = "none"
+        ) +
+
+        theme_minimal() +
+        theme(
+            plot.title = element_text(size = 14, hjust = 0.5),
+            panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+            panel.grid.minor.y = element_blank(),
+            axis.ticks = element_line(color = "grey"),
+            axis.ticks.length = unit(0.15, "cm"),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16)
+        ) +
+        labs(
+            title = bquote(.(indicator_title)),
+            x = "",
+            y = parse(text = "")
+        )
+
+    label_grob <- grid::textGrob(
+        label = parse(text = label_n),
+        x = unit(0.98, "npc"),
+        y = unit(0.95, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 14)
+    )
+
+    p <- p + annotation_custom(label_grob) +
+        annotation_custom(change_grob)
+
+    ggsave(
+        filename = here("fig", paste0("fig-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+        plot = p,
+        width = 5, height = 5, dpi = 400, units = "in", device = "png"
+    )
+
+    return(p)
+}
+
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- wrap_plots(plots) +
+    plot_layout(
+        ncol = 3,
+        guides = "collect"
+    ) +
+    plot_annotation(
+        tag_levels = "a"
+    ) &
+    theme(
+        plot.tag = element_text(face = "bold", size = 20),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.justification = "center",
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 16)
+    )
+
+ggsave(
+    here("fig", "fig-env-impacts.pdf"),
+    pfinal,
+    width = 16, height = 16, dpi = 400, units = "in", device = cairo_pdf
+)
+
+pfinal
+
+```
+
+## 3.2 Social performance
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+selected_indicators <- c(
+    "Employee turnover [%]",
+    "Employees covered by collective bargaining agreements [%]",
+    "# Training hours per employee",
+    "# Days lost to work-related injuries, ill health, and fatalities among employees",
+    # "Employees entitled to take family-related leaves [%]",
+    "Female employees in top managment [%]",
+    "Gender pay gap [%]",
+    "Annual remuneration ratio [%]",
+    "# Complaints filed by own workforce",
+    "Amount of fines, penalties, and compensation for damages as result of incidents and complaints [USD]"
+    # "# Severe human rights incidents connected to own workforce"
+)
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+grouping_info <- temp |>
+    mutate(label_specification = recode(label_specification, !!!renamer_soc)) |>
+    filter(
+        topic == "soc",
+        label_specification %in% selected_indicators
+    ) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    mutate(total = n()) |>
+    group_by(label_specification, year) |>
+    summarise(
+        n = n(),
+        .groups = "drop"
+    ) |>
+    mutate(
+        n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+        n_group = factor(n_group, levels = n_labels)
+    )
+
+p_soc <- temp |>
+    select(firm, year, topic, label_specification, value_final) |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_soc),
+        label_specification = factor(label_specification, levels = unname(renamer_soc))
+    ) |>
+    filter(
+        topic == "soc",
+        label_specification %in% selected_indicators
+    ) |>
+    drop_na(value_final) |>
+    group_by(label_specification, year) |>
+    ungroup() |>
+    group_by(label_specification, year) |>
+    summarise(
+        p10 = if_else(
+            label_specification != "Gender pay gap [%]",
+            quantile(value_final, 0.10, na.rm = TRUE),
+            quantile(value_final, 0.10, na.rm = TRUE)
+        ),
+        q1 = quantile(value_final, 0.25, na.rm = TRUE),
+        median = quantile(value_final, 0.50, na.rm = TRUE),
+        q3 = quantile(value_final, 0.75, na.rm = TRUE),
+        p90 = quantile(value_final, 0.90, na.rm = TRUE),
+        .groups = "drop"
+    ) |>
+    left_join(grouping_info, by = c("label_specification", "year")) |>
+    mutate(n_group = factor(n_group, levels = n_labels))
+
+n_values <- temp |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_soc),
+        label_specification = factor(label_specification, levels = unname(renamer_soc))
+    ) |>
+    filter(
+        topic == "soc",
+        label_specification %in% selected_indicators
+    ) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    summarise(n = n(), .groups = "drop")
+
+plotting <- function(indicator) {
+    data_filtered <- p_soc |>
+        filter(label_specification == indicator) |>
+        mutate(n_group = factor(n_group, n_labels)) |>
+        complete(
+            year,
+            label_specification,
+            n_group = factor(n_labels, levels = n_labels)
+        )
+
+    n_label <- n_values |>
+        filter(label_specification == indicator) |>
+        pull(n)
+
+    label_n <- paste0("italic(n)==", n_label)
+
+    # Compute percentage changes from 2014 to 2023 for annotations
+    median_change <- p_soc |>
+        filter(label_specification == indicator, year %in% c(2014, 2023)) |>
+        group_by(year) |>
+        summarise(median = median(median, na.rm = TRUE), .groups = "drop") |>
+        pivot_wider(names_from = year, values_from = median, names_prefix = "y")
+
+    if (all(c("y2014", "y2023") %in% names(median_change)) &&
+        !is.na(median_change$y2014) &&
+        !is.na(median_change$y2023) &&
+        median_change$y2014 != 0) {
+        pct_change <- ((median_change$y2023 - median_change$y2014) / median_change$y2014) * 100
+        change_label <- paste0("Δ: ", ifelse(pct_change > 0, "+", ""), round(pct_change, 1), "%")
+    } else {
+        change_label <- "Δ: n.a."
+    }
+
+    change_grob <- grid::textGrob(
+        label = change_label,
+        x = unit(0.98, "npc"),
+        y = unit(0.90, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 13, col = "gray30")
+    )
+
+    # use dynamic y-axis limits
+    y_min_raw <- min(data_filtered$p10, data_filtered$q1, na.rm = TRUE)
+    y_min <- if (y_min_raw < 1) 1 else 1 # set limits <1 if needed
+
+    y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+    p <- ggplot(data_filtered, aes(x = year)) +
+        geom_ribbon(
+            data = filter(data_filtered, !is.na(q1) & !is.na(q3)),
+            aes(ymin = q1, ymax = q3), fill = "#F1D1E5", alpha = 0.3
+        ) +
+        geom_line(data = filter(data_filtered, !is.na(q1)), aes(y = q1, color = "25th"), linetype = "dashed") +
+        geom_line(data = filter(data_filtered, !is.na(median)), aes(y = median, color = "50th"), size = 1) +
+        geom_line(data = filter(data_filtered, !is.na(q3)), aes(y = q3, color = "75th"), linetype = "dashed") +
+        geom_point(aes(y = median, shape = n_group, size = n_group, fill = n_group),
+            color = "#6F2E5D"
+        ) +
+        geom_line(data = filter(data_filtered, !is.na(p10)), aes(y = p10, color = "10th"), linetype = "dashed", linewidth = 0.6) +
+        geom_line(data = filter(data_filtered, !is.na(p90)), aes(y = p90, color = "90th"), linetype = "dashed", linewidth = 0.6)
+
+    if (indicator %in% c(
+        "Employee turnover [%]",
+        "Employees covered by collective bargaining agreements [%]",
+        "Female employees in top managment [%]",
+        "Gender pay gap [%]",
+        "Annual remuneration ratio [%]"
+    )) {
+        p <- p + scale_y_continuous(
+            limits = c(
+                min(data_filtered$p10, na.rm = TRUE) * 0.9,
+                max(data_filtered$p90, na.rm = TRUE) * 1.1
+            ),
+            labels = scales::comma_format()
+        )
+    } else {
+        p <- p + scale_y_continuous(
+            trans = "log10",
+            labels = scales::comma_format(),
+            limits = c(1, y_max),
+            oob = scales::oob_keep
+        )
+    }
+
+    p <- p +
+        scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+        scale_color_manual(values = c(
+            "10th" = "#D661B5",
+            "25th" = "#A24686",
+            "50th" = "#6F2E5D",
+            "75th" = "#A24686",
+            "90th" = "#D661B5"
+        ), name = "Percentiles") +
+        scale_shape_manual(
+            values = setNames(c(21, 21, 21), n_labels),
+            name = expression(bold("Reporting intensity (" * italic(n) * ")")),
+            guide = guide_legend(
+                override.aes = list(
+                    fill = c("white", "#6F2E5D", "#6F2E5D"),
+                    size = c(3.5, 5.5, 5.5)
+                )
+            ),
+            drop = FALSE
+        ) +
+        scale_fill_manual(
+            values = setNames(c("white", "#6F2E5D", "#6F2E5D"), n_labels),
+            drop = FALSE
+        ) +
+        scale_size_manual(
+            values = setNames(c(3.5, 3.5, 5.5), n_labels),
+            drop = FALSE
+        ) +
+        guides(
+            fill = "none",
+            size = "none"
+        ) +
+
+        theme_minimal() +
+        theme(
+            plot.title = element_text(size = 14, hjust = 0.5, lineheight = 1.2),
+            panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+            panel.grid.minor.y = element_blank(),
+            axis.ticks = element_line(color = "grey"),
+            axis.ticks.length = unit(0.15, "cm"),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16)
+        ) +
+        labs(
+            title = stringr::str_wrap(indicator, width = 45),
+            x = "",
+            y = parse(text = "")
+        )
+
+    label_grob <- grid::textGrob(
+        label = parse(text = label_n),
+        x = unit(0.98, "npc"),
+        y = unit(0.95, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 14)
+    )
+
+    p <- p + annotation_custom(label_grob) +
+        annotation_custom(change_grob)
+
+    ggsave(
+        filename = here("fig", paste0("fig-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+        plot = p,
+        width = 5, height = 5, dpi = 400, units = "in", device = "png"
+    )
+
+    return(p)
+}
+
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- wrap_plots(plots) +
+    plot_layout(
+        ncol = 3,
+        guides = "collect"
+    ) +
+    plot_annotation(
+        tag_levels = "a"
+    ) &
+    theme(
+        plot.tag = element_text(face = "bold", size = 20),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.justification = "center",
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 16)
+    )
+
+ggsave(
+    here("fig", "fig-soc-impacts.pdf"),
+    pfinal,
+    width = 16, height = 17.5, dpi = 400, units = "in", device = cairo_pdf
+)
+
+pfinal
+```
+
+## 3.3 Governance performane
+
+```{r}
+#| fig-width: 15
+#| fig-height: 5.5
+
+selected_indicators <- c(
+    "Independent board members [%]",
+    # "# Confirmed incidents of corruption and bribery",
+    "Lobbying expenses [USD]",
+    # "Political contributions made [EUR]",
+    # "Variable remuneration dependent on sustainability-targets [%]"
+    "# Days to pay invoice"
+)
+
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+grouping_info <- temp |>
+    mutate(label_specification = recode(label_specification, !!!renamer_gov)) |>
+    filter(topic == "gov", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    mutate(total = n()) |>
+    group_by(label_specification, year) |>
+    summarise(
+        n = n(),
+        .groups = "drop"
+    ) |>
+    mutate(
+        n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+        n_group = factor(n_group, levels = n_labels)
+    )
+
+p_gov <- temp |>
+    select(firm, year, topic, label_specification, value_final) |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_gov),
+        label_specification = factor(label_specification, levels = unname(renamer_gov))
+    ) |>
+    filter(topic == "gov", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification, year) |>
+    ungroup() |>
+    group_by(label_specification, year) |>
+    summarise(
+        p10 = quantile(value_final, 0.10, na.rm = TRUE),
+        q1 = quantile(value_final, 0.25, na.rm = TRUE),
+        median = quantile(value_final, 0.50, na.rm = TRUE),
+        q3 = quantile(value_final, 0.75, na.rm = TRUE),
+        p90 = quantile(value_final, 0.90, na.rm = TRUE),
+        .groups = "drop"
+    ) |>
+    left_join(grouping_info, by = c("label_specification", "year")) |>
+    mutate(n_group = factor(n_group, levels = n_labels))
+
+n_values <- temp |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_gov),
+        label_specification = factor(label_specification, levels = unname(renamer_gov))
+    ) |>
+    filter(topic == "gov", label_specification %in% selected_indicators) |>
+    drop_na(value_final) |>
+    group_by(label_specification) |>
+    summarise(n = n(), .groups = "drop")
+
+plotting <- function(indicator) {
+    data_filtered <- p_gov |>
+        filter(label_specification == indicator) |>
+        mutate(n_group = factor(n_group, levels = n_labels)) |>
+        complete(
+            year,
+            label_specification,
+            n_group = factor(n_labels, levels = n_labels)
+        )
+
+    n_label <- n_values |>
+        filter(label_specification == indicator) |>
+        pull(n)
+
+    label_n <- paste0("italic(n)==", n_label)
+
+    # Compute percentage changes from 2014 to 2023 for annotations
+    median_change <- p_gov |>
+        filter(label_specification == indicator, year %in% c(2014, 2023)) |>
+        group_by(year) |>
+        summarise(median = median(median, na.rm = TRUE), .groups = "drop") |>
+        pivot_wider(names_from = year, values_from = median, names_prefix = "y")
+
+    if (all(c("y2014", "y2023") %in% names(median_change)) &&
+        !is.na(median_change$y2014) &&
+        !is.na(median_change$y2023) &&
+        median_change$y2014 != 0) {
+        pct_change <- ((median_change$y2023 - median_change$y2014) / median_change$y2014) * 100
+        change_label <- paste0("Δ: ", ifelse(pct_change > 0, "+", ""), round(pct_change, 1), "%")
+    } else {
+        change_label <- "Δ: n.a."
+    }
+
+    change_grob <- grid::textGrob(
+        label = change_label,
+        x = unit(0.98, "npc"),
+        y = unit(0.90, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 13, col = "gray30")
+    )
+
+    # use dynamic y-axis limits
+    y_min_raw <- min(data_filtered$p10, data_filtered$q1, na.rm = TRUE) # add
+    y_min <- if (y_min_raw < 1) 0.1 else 1 # add
+
+    y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+    p <- ggplot(data_filtered, aes(x = year)) +
+        geom_ribbon(
+            data = filter(data_filtered, !is.na(q1) & !is.na(q3)),
+            aes(ymin = q1, ymax = q3), fill = "#EFF0F9", alpha = 0.3
+        ) +
+        geom_line(data = filter(data_filtered, !is.na(q1)), aes(y = q1, color = "25th"), linetype = "dashed") +
+        geom_line(data = filter(data_filtered, !is.na(median)), aes(y = median, color = "50th"), size = 1) +
+        geom_line(data = filter(data_filtered, !is.na(q3)), aes(y = q3, color = "75th"), linetype = "dashed") +
+        geom_point(aes(y = median, shape = n_group, size = n_group, fill = n_group),
+            color = "#485DA5"
+        ) +
+        geom_line(data = filter(data_filtered, !is.na(p10)), aes(y = p10, color = "10th"), linetype = "dashed", linewidth = 0.6) +
+        geom_line(data = filter(data_filtered, !is.na(p90)), aes(y = p90, color = "90th"), linetype = "dashed", linewidth = 0.6)
+
+    if (indicator %in% c("Independent board members [%]")) {
+        p <- p + scale_y_continuous(
+            limits = c(
+                min(data_filtered$p10, na.rm = TRUE) * 0.9,
+                max(data_filtered$p90, na.rm = TRUE) * 1.1
+            ),
+            labels = scales::comma_format()
+        )
+    } else {
+        p <- p + scale_y_continuous(
+            trans = "log10",
+            labels = scales::comma_format(),
+            limits = c(1, y_max),
+            oob = scales::oob_keep
+        )
+    }
+
+    p <- p +
+        scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+        scale_color_manual(values = c(
+            "10th" = "#9CA8DE",
+            "25th" = "#6D81CD",
+            "50th" = "#485DA5",
+            "75th" = "#6D81CD",
+            "90th" = "#9CA8DE"
+        ), name = "Percentiles") +
+        scale_shape_manual(
+            values = setNames(c(21, 21, 21), n_labels),
+            name = expression(bold("Reporting intensity (" * italic(n) * ")")),
+            guide = guide_legend(
+                override.aes = list(
+                    fill = c("white", "#485DA5", "#485DA5"),
+                    size = c(3.5, 5.5, 5.5)
+                )
+            ),
+            drop = FALSE
+        ) +
+        scale_fill_manual(
+            values = setNames(c("white", "#485DA5", "#485DA5"), n_labels),
+            drop = FALSE
+        ) +
+        scale_size_manual(
+            values = setNames(c(3.5, 3.5, 5.5), n_labels),
+            drop = FALSE
+        ) +
+        guides(
+            fill = "none",
+            size = "none"
+        ) +
+
+        theme_minimal() +
+        theme(
+            plot.title = element_text(size = 14, hjust = 0.5),
+            panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+            panel.grid.minor.y = element_blank(),
+            axis.ticks = element_line(color = "grey"),
+            axis.ticks.length = unit(0.15, "cm"),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16)
+        ) +
+        labs(
+            title = stringr::str_wrap(indicator, width = 45),
+            x = "",
+            y = parse(text = "")
+        )
+
+    label_grob <- grid::textGrob(
+        label = parse(text = label_n),
+        x = unit(0.98, "npc"),
+        y = unit(0.95, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 14)
+    )
+
+    p <- p + annotation_custom(label_grob) +
+        annotation_custom(change_grob)
+
+    ggsave(
+        filename = here("fig", paste0("fig-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+        plot = p,
+        width = 5, height = 5, dpi = 400, units = "in", device = "png"
+    )
+
+    return(p)
+}
+
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- wrap_plots(plots) +
+    plot_layout(
+        ncol = 3,
+        guides = "collect"
+    ) +
+    plot_annotation(
+        tag_levels = "a"
+    ) &
+    theme(
+        plot.tag = element_text(face = "bold", size = 20),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.justification = "center",
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 16)
+    )
+
+ggsave(
+    here("fig", "fig-gov-impacts.pdf"),
+    pfinal,
+    width = 16, height = 6.5, dpi = 400, units = "in", device = cairo_pdf
+)
+
+pfinal
+```
+
+```{r}
+## Median inflation adj. revenues EUR
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # check for internal Worldscope exchange rates
+    exchange_rates_check <- temp |>
+        select(firm, name, year, sales, salesUSD) |>
+        distinct() |>
+        filter(name %in% c("Bayer", "Adidas")) |>
+        mutate(usd_eur = sales / salesUSD)
+
+    exchange_rates_usd_to_eur <- exchange_rates_check |>
+        select(year, usd_eur) |>
+        distinct() |>
+        arrange(year)
+
+    # CPI adjustment factors to 2023 euros
+    # source: Eurostat; https://ec.europa.eu/eurostat/databrowser/view/prc_hicp_aind__custom_16284184/default/table?lang=en
+    # EU-19, All-items-HICP
+    inflation_factors_eur <- tibble(
+        year = 2014:2023,
+        index = c(
+            99.81, 100, 100.23, 101.78, 103.56,
+            104.80, 105.06, 107.78, 116.82, 123.14 # 2015 as base year
+        )
+    ) |>
+        mutate(inflation_factor = index[year == 2023] / index)
+
+    rev_real_yearly_eur <- temp |>
+        select(firm, year, salesUSD) |>
+        distinct() |>
+        inner_join(exchange_rates_usd_to_eur, by = "year") |>
+        mutate(salesEUR = salesUSD * usd_eur) |>
+        inner_join(inflation_factors_eur, by = "year") |>
+        mutate(salesEUR_real2023 = salesEUR * inflation_factor) |>
+        group_by(year) |>
+        summarize(
+            median_sales_real = median(salesEUR_real2023, na.rm = TRUE),
+            .groups = "drop"
+        ) |>
+        arrange(year) |>
+        mutate(
+            yoy_change = (median_sales_real / lag(median_sales_real) - 1)
+        )
+
+    y_max <- max(rev_real_yearly_eur$median_sales_real, na.rm = TRUE) * 1.1
+
+    ggplot(rev_real_yearly_eur, aes(x = year, y = median_sales_real, group = 1)) +
+        geom_line(linewidth = 1.1, color = "black") +
+        geom_point(size = 2, fill = "white", stroke = 1, shape = 21, color = "black") +
+        scale_y_continuous(
+            labels = scales::comma_format(),
+            limits = c(0, max(y_max)),
+            expand = c(0, 0)
+        ) +
+        labs(
+            title = "Trend in median revenue adjusted for inflation (2023 EUR)",
+            y = "Median revenues",
+            x = NULL
+        ) +
+        theme(
+            text = element_text(color = "black", size = 10),
+            panel.border = element_blank(),
+            panel.background = element_blank(),
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_line(color = "black"),
+            axis.title.y = element_text()
+        )
+
+
+    latex_table <- rev_real_yearly_eur |>
+        mutate(
+            `Median revenues (2023 EUR)` = comma(median_sales_real, accuracy = 1),
+            `YoY Change` = ifelse(is.na(yoy_change), "-", percent(yoy_change, accuracy = 0.1)),
+            Year = year
+        ) |>
+        select(
+            Year,
+            `Median revenues (2023 EUR)`
+        ) |>
+        kable(
+            format = "latex",
+            booktabs = TRUE,
+            linesep = "",
+            caption = "Inflation-adjusted median revenues in 2023 EUR",
+            label = "median_revs",
+            align = "cc"
+        ) |>
+        kable_styling(
+            latex_options = c("scale_down")
+        )
+
+    writeLines(latex_table, "tab-median_revs.tex")
+}
+```
+
+`r if (file.exists(file.path(datasets_dir, "firm_data.csv"))) "## 3.4 Intensities"`
+
+```{r intensities}
+## 3.5 Intensities
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    # Join inflation-adjusted revenues in EUR to temp
+    temp_int <- temp |>
+        left_join(
+            temp |>
+                select(firm, year, salesUSD) |>
+                distinct() |>
+                inner_join(exchange_rates_usd_to_eur, by = "year") |>
+                mutate(salesEUR = salesUSD * usd_eur) |>
+                inner_join(inflation_factors_eur, by = "year") |>
+                mutate(salesEUR_real2023 = salesEUR * inflation_factor) |>
+                select(firm, year, salesEUR_real2023),
+            by = c("firm", "year")
+        )
+
+# Function to parse units
+parse_unit_title <- function(title_str) {
+    if (grepl("m3", title_str)) {
+        return(bquote(atop("Median water intensity", "[m"^3 * " / EUR 1,000 infl. adj. sales]")))
+    } else if (grepl("scope 1", title_str, ignore.case = TRUE)) {
+        return(bquote(atop("Median scope 1 emission intensity", "[tCO"[2] * "eq / EUR 1,000 infl. adj. sales]")))
+    } else if (grepl("scope 2", title_str, ignore.case = TRUE)) {
+        return(bquote(atop("Median scope 2 emission intensity", "[market-based tCO"[2] * "eq / EUR 1,000 infl. adj. sales]")))
+    } else if (grepl("scope 3", title_str, ignore.case = TRUE)) {
+        return(bquote(atop("Median scope 3 emission intensity", "[tCO"[2] * "eq / EUR 1,000 infl. adj. sales]")))
+    } else if (grepl("MWh", title_str)) {
+        return(bquote(atop("Median energy intensity", "[MWh / EUR 1,000 infl. adj. sales]")))
+    } else if (grepl("t ", title_str)) {
+        return(bquote(atop("Median waste intensity", "[t / EUR 1,000 infl. adj. sales]")))
+    } else {
+        return(title_str) # for MWh, t, etc.
+    }
+}
+
+intensity_colors <- c(
+    "All companies" = "#2E6F40",
+    "Early adopters" = "#55C173"
+)
+
+# Function to plot intensities
+compute_and_plot_intensity <- function(df, indicator_label, plot_title) {
+    # Identify early adopters
+    early_adopters <- df |>
+        filter(label_specification == indicator_label, year %in% c(2014, 2015), !is.na(value_final)) |>
+        distinct(firm) |>
+        pull(firm)
+
+    # Create grouped df
+    data_all <- df |>
+        filter(label_specification == indicator_label) |>
+        select(firm, year, value_final, salesEUR_real2023) |>
+        distinct() |>
+        mutate(
+            group = "All companies",
+            emiss_int = (value_final / salesEUR_real2023) * 1000
+        )
+
+    data_early <- data_all |>
+        filter(firm %in% early_adopters) |>
+        mutate(group = "Early adopters")
+
+    data <- bind_rows(data_all, data_early) |>
+        group_by(group, year) |>
+        summarize(
+            median_emiss_int = median(emiss_int, na.rm = TRUE),
+            .groups = "drop"
+        ) |>
+        arrange(group, year)
+
+    y_max <- max(data$median_emiss_int, na.rm = TRUE) * 1.1
+
+    p <- ggplot(data, aes(x = year, y = median_emiss_int, color = group, group = group)) +
+        geom_line(linewidth = 1.1) +
+        geom_point(size = 2, aes(fill = group), stroke = 0.8, shape = 21) +
+        scale_color_manual(values = intensity_colors) +
+        scale_fill_manual(values = intensity_colors) +
+        scale_x_continuous(
+            breaks = seq(2015, 2023, by = 2)
+        ) +
+        scale_y_continuous(
+            labels = scales::label_number(accuracy = 0.0001), # or change to 0.1, 1, etc., depending on your scale
+            limits = c(0, y_max),
+            expand = c(0, 0)
+        ) +
+        labs(
+            title = parse_unit_title(plot_title),
+            y = NULL,
+            x = NULL,
+            color = NULL,
+            fill = NULL
+        ) +
+        theme_minimal(base_size = 10) +
+        theme(
+            plot.title = element_text(hjust = 0.5),
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_line(color = "black"),
+            panel.grid.major.y = element_line(color = "grey80", linetype = "dashed"),
+            panel.grid.minor.y = element_blank(),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank()
+        )
+}
+
+#| fig-width: 8
+#| fig-height: 10
+
+indicators <- list(
+    list(
+        label = "Gross Scope 1 greenhouse gas emissions",
+        title = "Scope 1 emission intensity [tCO2eq / 1000 real EUR sales]"
+    ),
+    list(
+        label = "Gross market-based Scope 2 greenhouse gas emissions",
+        title = "Scope 2 emission intensity [market-based, tCO2eq / 1000 real EUR sales]"
+    ),
+    list(
+        label = "Gross Scope 3 greenhouse gas emissions",
+        title = "Scope 3 emission intensity [tCO2eq / 1000 real EUR sales]"
+    ),
+    list(
+        label = "Energy consumption related to own operations",
+        title = "Energy intensity [MWh / 1000 real EUR sales]"
+    ),
+    list(
+        label = "Water consumption",
+        title = "Water intensity [m3 / 1000 real EUR sales]"
+    ),
+    list(
+        label = "Waste generated",
+        title = "Waste intensity [t / 1000 real EUR sales]"
+    )
+)
+
+plot_list_grouped <- lapply(indicators, function(ind) {
+    compute_and_plot_intensity(temp_int, ind$label, ind$title)
+})
+
+pfinal_grouped <- wrap_plots(plot_list_grouped, ncol = 2, guides = "collect") +
+    plot_annotation(tag_levels = "a") &
+    theme(
+        plot.tag = element_text(face = "bold")
+    )
+
+ggsave(
+    here("fig", "fig-intensities.pdf"),
+    pfinal_grouped,
+    width = 8, height = 10, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-intensities.pdf"))
+
+}
+```
+
+`r if (file.exists(file.path(datasets_dir, "firm_data.csv"))) "## 3.5 Intensities based on ratings"`
+```{r intensities-ratings}
+## 3.6 Intensities based on ratings
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+    #| fig-width: 8
+    #| fig-height: 10
+
+    # Join inflation-adjusted revenues in EUR to temp
+    temp_int_rating <- temp |>
+        left_join(
+            temp |>
+                select(firm, year, salesUSD) |>
+                distinct() |>
+                inner_join(exchange_rates_usd_to_eur, by = "year") |>
+                mutate(salesEUR = salesUSD * usd_eur) |>
+                inner_join(inflation_factors_eur, by = "year") |>
+                mutate(salesEUR_real2023 = salesEUR * inflation_factor) |>
+                select(firm, year, salesEUR_real2023),
+            by = c("firm", "year")
+        )
+
+    compute_and_plot_intensity_esg <- function(df, indicator_label, plot_title) {
+        msci_company_rating_map <- c(
+            "AAA" = 1, "AA" = 2, "A" = 3,
+            "BBB" = 4, "BB" = 5, "B" = 6,
+            "CCC" = 7
+        )
+
+        # Prepare and group data
+        data_grouped <- df |>
+            filter(label_specification == indicator_label) |> # !is.na(msci_company_rating_lagged) if All companies should be based on rated companies only
+            mutate(
+                msci_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map)
+            ) |>
+            select(firm, year, value_final, salesEUR_real2023, msci_rating_n) |>
+            distinct() |>
+            mutate(emiss_int = (value_final / salesEUR_real2023) * 1000) |>
+            # calculate yearly deciles
+            group_by(year) |>
+            # quantiles and groups based only on rated companies
+            mutate(
+                top10 = msci_rating_n <= quantile(msci_rating_n, 0.10, na.rm = TRUE),
+                bottom10 = msci_rating_n >= quantile(msci_rating_n, 0.90, na.rm = TRUE),
+                rating_group = case_when(
+                    top10 ~ "Top 10%",
+                    bottom10 ~ "Bottom 10%",
+                    TRUE ~ "Middle 80%"
+                )
+            ) |>
+            ungroup() |>
+            mutate(
+                rating_group = factor(rating_group, levels = c("Middle 80%", "Top 10%", "Bottom 10%"))
+            )
+
+        # debug_2023 <- data_grouped |> filter(year == 2023, rating_group == "Top 10%")
+        # print(debug_2023)
+
+        # Compute group-wise medians
+        group_medians <- data_grouped |>
+            filter(rating_group %in% c("Top 10%", "Bottom 10%")) |>
+            group_by(rating_group, year) |>
+            summarize(median_emiss_int = median(emiss_int, na.rm = TRUE), .groups = "drop")
+
+        # Compute overall median
+        overall_median <- data_grouped |>
+            group_by(year) |>
+            summarize(median_emiss_int = median(emiss_int, na.rm = TRUE), .groups = "drop") |>
+            mutate(rating_group = "All companies")
+
+        # Combine
+        data <- bind_rows(group_medians, overall_median) |>
+            mutate(rating_group = factor(rating_group, levels = c("All companies", "Top 10%", "Bottom 10%")))
+
+        y_max <- max(data$median_emiss_int, na.rm = TRUE) * 1.1
+
+        # Plot
+        ggplot(data, aes(x = year, y = median_emiss_int, color = rating_group, group = rating_group)) +
+            geom_line(linewidth = 1.1) +
+            geom_point(size = 2, aes(fill = rating_group), shape = 21, stroke = 0.8) +
+            scale_color_manual(values = c("Top 10%" = "#1b7837", "Bottom 10%" = "#d73027", "All companies" = "grey50")) +
+            scale_fill_manual(values = c("Top 10%" = "#1b7837", "Bottom 10%" = "#d73027", "All companies" = "grey50")) +
+            scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+            scale_y_continuous(
+                labels = scales::label_number(accuracy = 0.0001),
+                limits = c(0, y_max),
+                expand = c(0, 0)
+            ) +
+            labs(
+                title = parse_unit_title(plot_title),
+                y = NULL,
+                x = NULL,
+                color = NULL,
+                fill = NULL
+            ) +
+            theme_minimal(base_size = 10) +
+            theme(
+                plot.title = element_text(hjust = 0.5),
+                axis.line = element_line(color = "black"),
+                axis.ticks = element_line(color = "black"),
+                panel.grid.major.y = element_line(color = "grey80", linetype = "dashed"),
+                panel.grid.minor = element_blank()
+            )
+    }
+
+    plot_list_esg <- lapply(indicators, function(ind) {
+        compute_and_plot_intensity_esg(temp_int_rating, ind$label, ind$title)
+    })
+
+    pfinal_esg <- wrap_plots(plot_list_esg, ncol = 2, guides = "collect") +
+        plot_annotation(tag_levels = "a") &
+        theme(
+            plot.tag = element_text(face = "bold")
+        )
+
+    ggsave(
+        here("fig", "fig-intensities-esg.pdf"),
+        pfinal_esg,
+        width = 8, height = 10, dpi = 400, units = "in", device = "pdf"
+    )
+
+    knitr::include_graphics(here("fig/fig-intensities-esg.pdf"))
+}
+```
+
+```{r within-scope-3-transparency}
+# Within scope 3 transparency --> Scope 3 emissions
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    scope3_id_list <- c(
+        "5f8c310c-e820-4b44-ba6b-99d95c0d0d5c", # Gross Scope 3 greenhouse gas emissions
+        "341022cd-222c-4bd5-83e4-6c0530c9557e", # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
+        "608a6b9f-55dc-4eda-a061-8085bc748339", # Gross Scope 3 greenhouse gas emissions
+        "f2d2c579-0b6b-4ab7-8cdf-c916a6680717", # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
+        "04b7d87f-db3c-4975-87f3-47520cda5b03", # Gross Scope 3 greenhouse gas emissions: Category 5 Waste generated in operations
+        "961dadd9-4283-4f39-918e-81f25cf142a7", # Gross Scope 3 greenhouse gas emissions: Category 11 Use of sold products
+        "fd40534f-e50f-4837-9e57-81cdd9647b20", # Gross Scope 3 greenhouse gas emissions: Category 10 Processing of sold products
+        "5f6f9570-d625-46ed-adea-b13a578a9a79", # Gross Scope 3 greenhouse gas emissions: Category 14 Franchises
+        "db0b1f5d-fae3-4dc4-a6d4-72a533873418", # Gross Scope 3 greenhouse gas emissions: Other Scope 3 greenhouse gas emissions category
+        "95b2e351-87f6-46c1-aa6d-9f642696a1ef", # Gross Scope 3 greenhouse gas emissions: Category 9 Downstream transportation and distribution
+        "0b0f6402-a6e0-45ac-a985-e10d81c516ce", # Gross Scope 3 greenhouse gas emissions: Category 12 End-of-life treatment of sold products
+        "d33b6a05-6e3e-437f-8a0a-339746337cac", # Gross Scope 3 greenhouse gas emissions: Category 8 Upstream leased assets
+        "56b22f52-1824-44c8-bf75-363e95d3702c", # Gross Scope 3 greenhouse gas emissions: Category 3 Fuel and energy-related activities
+        "2c8d0f5e-fd48-4c65-9b85-cfb754584da1", # Gross Scope 3 greenhouse gas emissions: Category 4 Upstream transportation and distribution
+        "510ded1f-d499-4610-8796-118a2161243a", # Gross Scope 3 greenhouse gas emissions: Category 7 Employee commuting
+        "f8dd709b-02df-4169-a4fd-973ffd8f1653", # Gross Scope 3 greenhouse gas emissions: Category 15 Investments
+        "5321482d-2489-467d-b58d-6da5d2caa9c9", # Gross Scope 3 greenhouse gas emissions: Category 13 Downstream leased assets
+        "6ed13e4c-35ef-4fa9-ac1e-941a4fed1ec7", # Gross Scope 3 greenhouse gas emissions: Category 6 Business travel
+        "2a8f4e1c-84d6-4b4e-92d6-0f7b6d1c8d7e", # Gross Scope 3 greenhouse gas emissions: Category 1 Purchased goods and services
+        "15feb559-220c-4210-b880-e0216693b961", # Gross Scope 3 greenhouse gas emissions: Category 2 Capital goods
+        "024a7225-7899-4ea1-b830-c21233ad1991", # Gross Scope 3 greenhouse gas emissions: Category 1.1 Cloud computing and data centre services
+        "d8370bd2-00a1-4475-8b48-f88f5aab12e3", # Gross Scope 3 greenhouse gas emissions
+        "caca2630-ddc3-43fe-9c41-1d3a206be4e4", # Gross Scope 3 greenhouse gas emissions: Own operations
+        "375c568c-e22e-44a8-890b-bb5a59bbace6", # Gross Scope 3 greenhouse gas emissions: Downstream value chain
+        "6763e553-a72b-4872-815c-b5c42630a58c", # Gross Scope 3 greenhouse gas emissions: Transport
+        "9f19d32c-2483-4794-a36e-c91e326e8bc9", # Gross Scope 3 greenhouse gas emissions: Upstream value chain
+        "e4254451-da4a-4473-b3de-5c7573ef403a" # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
+    )
+
+    scope3_within <- df_merged_gt |>
+        filter(id %in% scope3_id_list) |>
+        group_by(firm, year) |>
+        summarize(transp = mean(exists), .groups = "drop") |>
+        select(firm, year, transp) |>
+        distinct()
+
+    scope3_total <- df_merged_gt |>
+        filter(id == "5f8c310c-e820-4b44-ba6b-99d95c0d0d5c") |>
+        select(firm, year, value_final, ref_value) |>
+        distinct() |>
+        mutate(
+            value_final = as.numeric(value_final),
+            ref_value = as.numeric(ref_value),
+            scope3_log = log(value_final),
+            scope3_log_ref = log(ref_value)
+        )
+
+    # Extracted values
+    scope3_within_ev <- scope3_within |>
+        left_join(scope3_total, by = c("firm", "year")) |>
+        filter(!is.na(scope3_log)) |>
+        mutate(
+            year = factor(year, levels = as.character(2014:2023)) # enforce order
+        )
+
+    # Refinitiv
+    scope3_within_ref <- scope3_within |>
+        left_join(scope3_total, by = c("firm", "year")) |>
+        filter(!is.na(scope3_log_ref)) |>
+        mutate(
+            year = factor(year, levels = as.character(2014:2023)) # enforce order
+        )
+
+    m1 <- feols(scope3_log ~ year, data = scope3_within_ev, vcov = ~firm)
+    m2 <- feols(scope3_log ~ year + transp, data = scope3_within_ev, vcov = ~firm)
+    m3 <- feols(scope3_log_ref ~ year, data = scope3_within_ref, vcov = ~firm)
+    m4 <- feols(scope3_log_ref ~ year + transp, data = scope3_within_ref, vcov = ~firm)
+
+    # Get all unique coefficient names
+    all_terms <- union(names(coef(m1)), names(coef(m2)))
+
+    exp_m1 <- setNames(coef(m1), names(coef(m1)))
+    exp_m2 <- setNames(coef(m2), names(coef(m2)))
+
+    coef_rename <- c(
+        "(Intercept)" = "Constant",
+        "transp" = "Relative scope 3 transparency score",
+        "year2015" = "2015",
+        "year2016" = "2016",
+        "year2017" = "2017",
+        "year2018" = "2018",
+        "year2019" = "2019",
+        "year2020" = "2020",
+        "year2021" = "2021",
+        "year2022" = "2022",
+        "year2023" = "2023"
+    )
+
+    exp_df <- tibble(
+        term = coef_rename[all_terms],
+        `exp(1)` = ifelse(all_terms == "(Intercept)", NA, round(exp(exp_m1[all_terms]), 3)),
+        `exp(2)` = ifelse(all_terms == "(Intercept)", NA, round(exp(exp_m2[all_terms]), 3))
+    )
+
+    panel_scope3 <- modelsummary(
+        list(
+            "(1)" = m1,
+            "(2)" = m2,
+            "(3)" = m3,
+            "(4)" = m4
+        ),
+        stars = c("***" = 0.001, "**" = 0.01, "*" = 0.05),
+        coef_rename = coef_rename,
+        gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
+        output = "latex" # ,
+        # add_columns = exp_df[, c("exp(1)", "exp(2)")]
+    ) |>
+        as.character()
+
+    panel_lines <- unlist(strsplit(panel_scope3, "\n"))
+
+    # Find where the main table starts
+    start_row <- which(grepl("\\\\toprule", panel_lines)) + 1
+
+    # Find where the gof stats start
+    end_row <- which(grepl("Num\\.Obs\\.|R2 Adj\\.", panel_lines)) - 1
+
+    # Coefficient lines
+    coef_block <- panel_lines[start_row:end_row]
+
+    # Bottom stats block
+    gof_block <- panel_lines[(end_row + 1):(end_row + 2)]
+
+    footnote_text_scope3 <- "This table reports estimates from a regression analysis where the dependent variable is the scope 3 greenhouse gas emissions (in log values). Models (1) and (2) use the scope 3 emissions data from our machine learning framework, while models (3) and (4) use the corresponding values from Refinitiv data. All regressions include year fixed effects (FEs). Additionally, models (2) and (4) include a relative transparency score for scope 3 emissions, which is a company-level measure of scope 3 emissions transparency calculated as the number of reported indicators divided by all scope 3 emissions indicators. Standard errors are clustered at the company level. Significance levels: ***, **, and * indicate statistical significance at the 0.1\\%, 1\\%, and 5\\% level, respectively. Estimates are based on ordinary least squares (OLS) regression. We find a sharp increase in scope 3 emissions from 2021 onward (models (1) and (2)). The effect gets substantially smaller when we control for relative scope 3 transparency (models (2) and (4)), indicating that more extensive reporting of individual scope 3 categories explains part of the increase in overall scope 3 emissions. The results are consistent across both data sources (i.e., the emission data extracted by our machine learning framework and the emission data by Refinitiv)."
+
+
+    ltx_scope3 <- c(
+        "\\begin{table}[!htbp]",
+        "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
+        "\\caption{Regression analysis for scope 3 emissions.}",
+        "\\centering",
+        "\\label{tab:regression_scope3}",
+        "\\begin{threeparttable}",
+        "",
+        "\\begin{tabularx}{\\textwidth}{ p{5cm} cc cc }",
+        "\\toprule",
+        " & \\multicolumn{2}{c}{Extracted values} & \\multicolumn{2}{c}{Refinitiv} \\\\",
+        "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5}",
+        coef_block,
+        "\\midrule",
+        "Company FE   & No & No & No & No  \\\\",
+        "\\midrule",
+        gof_block,
+        "\\bottomrule",
+        "\\end{tabularx}", "", "\\vspace{1em}",
+        "\\begin{tablenotes}[flushleft]",
+        "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+        "\\footnotetext",
+        sprintf("\\item \\textbf{Notes:} %s", footnote_text_scope3),
+        "\\end{tablenotes}",
+        "\\end{threeparttable}",
+        "\\end{table}"
+    )
+
+    ltx_scope3_final <- gsub("Num.Obs.", "$N$", ltx_scope3)
+    ltx_scope3_final <- gsub("R2 Adj.", "Adj. $R^2$", ltx_scope3_final)
+
+    writeLines(
+        paste(ltx_scope3_final, collapse = "\n"),
+        "tab-scope3_regression.tex"
+    )
+}
+
+```
+

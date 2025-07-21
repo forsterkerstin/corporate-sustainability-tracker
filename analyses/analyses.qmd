@@ -1,0 +1,324 @@
+---
+title: "Assessing corporate sustainability with large language models: Evidence from Europe"
+subtitle: "Analyses"
+date: "today"
+
+format: 
+    pdf:
+        toc: true
+        header-includes:
+            - \usepackage[a4paper]{geometry}
+            - \usepackage{typearea}
+            - \usepackage{float}
+            - \usepackage{pifont}
+            - \usepackage{pdflscape}
+            - \usepackage{dsfont}
+            - \usepackage{tabularx}
+            - \newcolumntype{Y}{>{\centering\arraybackslash}X}
+            - \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+            - \floatplacement{table}{H}
+            - \floatplacement{figure}{H}
+        
+mainfont: "Times New Roman"
+sansfont: "Times New Roman"
+fig-cap-location: top
+
+execute: 
+  echo: false
+  warning: false
+  message: true
+keep-tex: true
+---
+
+
+```{r imports-and-settings}
+# Automatically install all required R packages and TeX distribution
+if (file.exists("install_packages.r")) {
+  source("install_packages.r")
+} else {
+  warning("install_packages.r not found. Please ensure required packages are installed.")
+}
+
+library(tidyr)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tinytable)
+library(kableExtra)
+library(modelsummary)
+library(fixest)
+library(here)
+library(patchwork)
+library(grid)
+library(scales)
+library(data.tree)
+library(DiagrammeR)
+library(vtree)
+library(xtable)
+library(ggnewscale)
+library(forcats)
+library(purrr)
+library(gridExtra)
+library(stringr)
+library(rlang)
+library(yaml)
+
+# Load data path from config file
+config <- yaml::read_yaml(here("configs/config.yaml"))
+datasets_dir <- here(config$datasets_dir)
+results_dir <- here(config$results_dir)
+
+# Source utils
+source("utils.r")
+
+# Create directory for figures
+dir.create(here::here("fig"), showWarnings = FALSE, recursive = TRUE)
+
+theme_set(theme_bw())
+theme_update(
+    # text = element_text(size = 10),
+    panel.grid.major = element_line(
+        colour = "grey64", linetype = "dotted", linewidth = 0.5
+    ),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.position = "bottom"
+)
+
+options(
+    ggplot2.discrete.colour = list(c("#2E6F40", "#6F2E5D", "#485DA5")),
+    ggplot2.discrete.fill = list(c("#2E6F40", "#6F2E5D", "#485DA5"))
+    # Getting the default colors --> scales::show_col(scales::hue_pal()(3))
+)
+
+options("modelsummary_stars_note" = FALSE)
+options("modelsummary_format_numeric_latex" = "plain")
+options(tinytable_print_rstudio_notebook = "viewer") # for showing in viewer pane
+
+```
+
+```{r get-raw-data}
+
+# Use this for ESG performance analysis
+df <- read_csv(file.path(results_dir, "esg_indicators_postprocessed.csv")) |>
+    left_join(
+        read_csv(file.path(datasets_dir, "indicator_metadata.csv"), show_col_types = FALSE),
+        by = c("data_point_id" = "id")
+    ) |>
+    rename(
+        id = data_point_id,
+        descr = data_point_description,
+        firm = company_id,
+        discl_req_num = id_num
+    ) |>
+    mutate(
+        value_final = na_if(value_final, ""),
+        exists = !is.na(value_final),
+        topic = factor(topic, c("env", "soc", "gov"))
+    ) |>
+    select(-c(discl_req_num, label, specification, context, type))
+
+# Use this (before currency conversion) to assess retrieval performance
+df_eval <- read_csv(file.path(results_dir, "esg_indicators_validation.csv")) |>
+    left_join(
+        read_csv(file.path(datasets_dir, "indicator_metadata.csv"), show_col_types = FALSE),
+        by = c("data_point_id" = "id")
+    ) |>
+    rename(
+        id = data_point_id,
+        descr = data_point_description,
+        firm = company_id,
+        discl_req_num = id_num
+    ) |>
+    mutate(
+        value_final = na_if(value_final, ""),
+        exists = !is.na(value_final),
+        topic = factor(topic, c("env", "soc", "gov"))
+    ) |>
+    select(-c(discl_req_num, label, specification, context, type))
+
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    refinitiv <- read_csv(file.path(datasets_dir, "refinitiv_validation_set.csv"),
+        show_col_types = FALSE
+    ) |>
+        rename(
+            refinitiv_fieldname = fieldname,
+            ref_value = value
+        ) |>
+        mutate(ref_exists = !is.na(ref_value)) |>
+        inner_join(
+            # Merge company_ids
+            read_csv(file.path(datasets_dir, "companies.csv"),
+                show_col_types = FALSE
+            ) |>
+                select(isin, firm) |>
+                rename(company_id = firm) |>
+                unique(),
+            by = c("isin")
+        ) |>
+        rename(firm = company_id) |>
+        select(firm, year, refinitiv_fieldname, ref_value, ref_exists)
+}
+
+manual <- read_csv(file.path(datasets_dir, "manual_validation_set.csv"),
+    show_col_types = FALSE
+) |>
+    separate("company_year", into = c("company_id", "year"), sep = "_") |>
+    mutate(year = as.integer(year)) |>
+    rename(
+        firm = company_id,
+        id = data_point_id,
+        manual_value = value
+    ) |>
+    select(firm, year, id, manual_value)
+
+manual_annotator2 <- read_csv(file.path(datasets_dir, "manual_validation_set_annotator2.csv"),
+    show_col_types = FALSE
+) |>
+    separate("company_year", into = c("company_id", "year"), sep = "_") |>
+    mutate(year = as.integer(year)) |>
+    rename(
+        firm = company_id,
+        id = data_point_id,
+        manual_value_annotator2 = value
+    ) |>
+    select(firm, year, id, manual_value_annotator2)
+```
+
+```{r}
+
+df_merged_gt <- df_eval |>
+    select(firm, year, topic, standard, discl_req, id, refinitiv_fieldname, label_specification, exists, value_final)
+
+# Conditionally join Refinitiv if available
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    df_merged_gt <- df_merged_gt |>
+        left_join(refinitiv, by = c("firm", "year", "refinitiv_fieldname"))
+}
+
+# Always join manual annotation data
+df_merged_gt <- df_merged_gt |>
+    left_join(manual, by = c("firm", "year", "id")) |>
+    left_join(manual_annotator2, by = c("firm", "year", "id"))
+
+# Apply conditional mutate: only use Refinitiv-based variables if available
+df_merged_gt <- df_merged_gt |>
+    mutate(
+        value_final = as.numeric(value_final),
+        manual_value = as.numeric(gsub(",", "", manual_value)),
+        manual_value_annotator2 = as.numeric(gsub(",", "", manual_value_annotator2))
+    )
+
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    df_merged_gt <- df_merged_gt |>
+        mutate(
+            ref_exists = ifelse(!is.na(refinitiv_fieldname) & is.na(ref_exists), FALSE, ref_exists),
+            ref_corec = exists == ref_exists,
+            ref_value = as.numeric(ref_value),
+            ref_reslt = case_when(
+                (exists == TRUE) & (ref_exists == TRUE) ~ "true_pos",
+                (exists == TRUE) & (ref_exists == FALSE) ~ "fals_pos",
+                (exists == FALSE) & (ref_exists == TRUE) ~ "fals_neg",
+                (exists == FALSE) & (ref_exists == FALSE) ~ "true_neg"
+            ),
+            ref_exact = ref_value == value_final,
+            ref_in1p = ifelse((ref_value == 0) & (value_final == 0), TRUE, abs(ref_value - value_final) / abs(value_final) <= 0.01),
+            ref_in10p = ifelse((ref_value == 0) & (value_final == 0), TRUE, abs(ref_value - value_final) / abs(value_final) <= 0.10)
+        )
+} else {
+    message("[INFO] Refinitiv dataset not found. Skipping related analyses.\n")
+}
+```
+
+```{r label = "Define renamer dictionaries"}
+
+renamer_env <- c(
+    # label_specification
+    "Gross Scope 1 greenhouse gas emissions" = "Total scope 1 emissions [tCO₂eq]",
+    "Gross market-based Scope 2 greenhouse gas emissions" = "Total scope 2 emissions (market-based) [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions" = "Total scope 3 emissions [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 1 Purchased goods and services" = "Category 1 Purchased goods and services [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 1.1 Cloud computing and data centre services" = "Category 1.1 Cloud computing and data center services [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 2 Capital goods" = "Category 2 Capital goods [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 3 Fuel and energy-related activities" = "Category 3 Fuel and energy-related activities [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 4 Upstream transportation and distribution" = "Category 4 Upstream transportation and distribution [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 5 Waste generated in operations" = "Category 5 Waste generated in operations [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 6 Business travel" = "Category 6 Travel [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 7 Employee commuting" = "Category 7 Commuting [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 8 Upstream leased assets" = "Category 8 Upstream leased assets [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 9 Downstream transportation and distribution" = "Category 9 Downstream transportation and distribution [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 10 Processing of sold products" = "Category 10 Processing of sold products [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 11 Use of sold products" = "Category 11 Use of sold products [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 12 End-of-life treatment of sold products" = "Category 12 End-of-life treatment of sold products [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 13 Downstream leased assets" = "Category 13 Downstream leased assets [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 14 Franchises" = "Category 14 Franchises [tCO₂eq]",
+    "Gross Scope 3 greenhouse gas emissions: Category 15 Investments" = "Category 15 Investments [tCO₂eq]",
+    "Energy consumption related to own operations" = "Energy consumption [MWh]",
+    "Percentage of renewable sources in total energy consumption" = "Renewable sources in total energy consumption [%]",
+    "Percentage of fossil sources in total energy consumption" = "Fossil sources in total energy consumption [%]",
+    "Water consumption" = "Water consumption [m³]",
+    "Waste generated" = "Total waste generated [t]",
+    "Percentage of non-recycled waste" = "Non-recycled waste [%]",
+    "Carbon price applied for each metric tonne of greenhouse gas emission: CapEx shadow price" = "Internal carbon price [USD]"
+)
+
+renamer_soc <- c(
+    # label_specification
+    "Number of employees (head count), at end of period" = "# Employees",
+    "Percentage of employee turnover" = "Employee turnover [%]",
+    "Percentage of total employees covered by collective bargaining agreements" = "Employees covered by collective bargaining agreements [%]",
+    "Average number of training hours per employee and (or) non-employee: Employees" = "# Training hours per employee",
+    "Number of recordable work-related accidents: Employees" = "# Work-related accidents (employees)",
+    "Percentage of employees entitled to take family-related leaves" = "Employees entitled to take family-related leaves [%]",
+    "Percentage of employees at top management level: Female" = "Female employees in top managment [%]",
+    "Gender pay gap" = "Gender pay gap [%]",
+    "Number of complaints filed through channels for people in own workforce to raise concerns" = "# Complaints filed by own workforce",
+    "Number of severe human rights incidents connected to own workforce" = "# Severe human rights incidents connected to own workforce",
+    "Number of days lost to work-related injuries and fatalities from work-related accidents, work-related ill health and fatalities from ill health: Employees" = "# Days lost to work-related injuries, ill health, and fatalities among employees",
+    "Amount of fines, penalties, and compensation for damages as result of incidents and complaints" = "Amount of fines, penalties, and compensation for damages as result of incidents and complaints [USD]",
+    "Annual remuneration ratio" = "Annual remuneration ratio [%]"
+)
+
+renamer_gov <- c(
+    # label_specification
+    "Percentage of independent board members" = "Independent board members [%]",
+    "Number of confirmed incidents of corruption or bribery" = "# Confirmed incidents of corruption and bribery",
+    "Financial political contributions made" = "Political contributions made [USD]",
+    "Amount of internal and external lobbying expenses" = "Lobbying expenses [USD]",
+    "Percentage of variable remuneration dependent on sustainability-related targets and (or) impacts: ESRS E1 Climate change" = "Variable remuneration dependent on sustainability-targets [%]",
+    "Average number of days to pay invoice from date when contractual or statutory term of payment starts to be calculated" = "# Days to pay invoice"
+)
+```
+
+<!-- ------------------------------------------------------------------------------ -->
+<!-- ----  Start analyses  -------------------------------------------------------- -->
+<!-- ------------------------------------------------------------------------------ -->
+
+
+\newpage
+\recalctypearea
+\KOMAoptions{paper=portrait,pagesize}
+\newgeometry{left=2cm, right=2cm, top=2cm}
+
+
+# 1. Framework overview
+{{< include chunks/01-sample.qmd >}}
+\newpage
+
+
+# 2. ESG transparency
+{{< include chunks/02-transparency.qmd >}}
+{{< include chunks/99b-firm-level.qmd >}}
+
+# 3. ESG performance
+{{< include chunks/03-esg-performance.qmd >}}
+
+
+# Appendix
+
+## Validation
+{{< include chunks/99a-correlations.qmd >}}
+
+## Additional analyses
+{{< include chunks/99c-additional-analyses.qmd >}}
+

@@ -1,0 +1,47 @@
+---
+# General settings
+together_api_key: ""  # TogetherAI API key
+huggingface_token: ""  # Huggingface login token for token count
+srn_api_link: "https://api.sustainabilityreportingnavigator.com/api/"  # Link to the Sustainability Reporting Navigator API
+max_workers: 35  # Maximum number of workers for concurrent processing
+text_file_type: "json"  # Desired text file type ("json"/"md")
+
+# Directory settings
+log_dir: "logs" # Directory for the logs
+datasets_dir: "data/raw/datasets"  # Directory for the raw data
+document_sample_file: ""  # (Optional) file that specifies a document sample list / ""
+existing_results_folder: ""  # (Optional) folder in which existing (raw) results are stored / ""
+pdf_dir: "data/raw/reports_pdf"  # Directory for the downloaded PDF files
+txt_dir: "data/processed/reports_txt"  # Directory for converted TXT files
+vectorstore_dir: "data/processed/vectorstores"  # Directory for the created vectorstore files
+results_dir: "data/processed/results"  # Directory for the final results
+data_points_file: "data/raw/datasets/indicator_metadata.csv"  # File in which the data points are stored
+
+# Vectorstore creation settings
+chunk_size: 400  # Size of the document chunks
+chunk_overlap: 100  # Size of the rolling window (overlapping characters)
+chunk_separators: ["\n\n\n", "\n \n \n", "\n\n", "\n \n", ". ", "; ", "\n"]  # Separators for RecursiveCharacterTextSplitter
+embedding_model_name: "sentence-transformers/all-MiniLM-L12-v2"  # Embedding model name, default: "sentence-transformers/all-MiniLM-L12-v2" / "intfloat/multilingual-e5-small"
+embedding_model_host: "HuggingFace"  # "TogetherAI" or "HuggingFace"
+
+# Retrieval-augmented generation settings
+inference_model_name: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"  # Name of the TogetherAI-hosted LLM
+model_temperature: 0.0  # Temperature of the LLM
+model_output_max_tokens: 128  # Maximum number of LLM output tokens
+max_retrieval_retries: 3  # Maximum number of retries for context retrieval
+parent_document_retrieval: True  # Whether to apply parent document retrieval
+parent_document_window_size: 1  # Size of the parent document window (sequence_number-parent_document_window_size,sequence_number+parent_document_window_size)
+apply_hybrid_search: True  # Flag whether to apply hybrid search for retrieval (vector-based + keyword-based)
+apply_reranking: True  # Flag whether to apply context reranking
+reranking_model_name: "Salesforce/Llama-Rank-V1"  # "ms-marco-MiniLM-L-12-v2" / "cross-encoder/ms-marco-MiniLM-L-12-v2" 
+max_generation_retries: 10  # Maximum number of retries for output generation
+number_of_chunks: 30  # Number of context chunks to be retrieved (prior to reranking)
+number_of_chunks_reranked: 10  # Number of context chunks to be retrieved during reranking
+system_prompt: |-  # System prompt for the inference model
+  You are a senior researcher who specializes in extracting numeric data points from corporate reports to meet the European Sustainability Reporting Standards (ESRS). Your task is to identify the correct value and unit of the requested data point from the provided corporate report chunks.
+  Give a single, definite answer in JSON format with the keys "value" and "unit". "value" is a single floating-point value without any commas or spaces between the digits. If the requested data point is a date, "value" is a string in the form "YYYY-MM-DD". "unit" is always a string.
+  For example: {{"value": 281002.0, "unit": "tCO2e"}} or {{"value": 15.4, "unit": "%"}} or {{"value": 1118.0, "unit": null}}.
+  Important note: If you cannot find information on the requested data point in the provided corporate report, respond with: {{"value": null, "unit": null}}.
+  Use only the provided corporate report in its entirety to find information on the requested data point.
+user_prompt: "Corporate report ({company}, year {year}): {context}\n\nRequested data point: {{request}}\n\nAnswer:"  # User prompt for the inference model
+...

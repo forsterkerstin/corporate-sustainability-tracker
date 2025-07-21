@@ -1,0 +1,413 @@
+
+\newpage
+
+```{r}
+library(latex2exp)
+
+#| fig-cap: "Comparing of extracted values to validation dataset"
+#| fig-width: 3.5
+#| fig-height: 3.5
+
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    # Prepare data
+    temp <-
+        df_merged_gt |>
+        rename(
+            rag_value = value_final,
+            datapoint = label_specification
+        ) |>
+        select(firm, year, topic, datapoint, rag_value, ref_value) |>
+        drop_na() |>
+        pivot_longer(
+            cols = c("ref_value", "rag_value"),
+            names_pattern = "(.*)_value",
+            names_to = "type",
+            values_to = "value"
+        ) |>
+        group_by(topic, datapoint) |>
+        filter(value <= quantile(value, 0.99, na.rm = TRUE)) |>
+        mutate(value = (value - min(value)) / (max(value) - min(value))) |>
+        pivot_wider(
+            names_from = "type",
+            values_from = "value"
+        ) |>
+        drop_na() |>
+        group_by(topic, datapoint) |>
+        summarize(
+            n = n(),
+            ref = mean(ref),
+            rag = mean(rag),
+            .groups = "drop"
+        )
+
+    # Fit linear model
+    model <- lm(ref ~ rag, data = temp)
+
+    # Create prediction grid for CI lines
+    x_grid <- data.frame(rag = seq(0, 0.75, length.out = 200))
+    model_grid <- predict(model, newdata = x_grid, interval = "confidence")
+    model_plotdata <- cbind(x_grid, model_grid)
+
+    # Create plot
+    p <- ggplot(temp, aes(x = rag, y = ref)) +
+        geom_point(aes(fill = topic), colour = "white", pch = 21, alpha = .9, size = 3, show.legend = FALSE) +
+        scale_fill_manual(values = c("env" = "#419759", "soc" = "#A24688", "gov" = "#6D81CD"), name = "") +
+        geom_smooth(
+            aes(x = rag, y = ref),
+            method = "lm", formula = "y ~ x",
+            linetype = 1, color = "black", se = FALSE, fullrange = TRUE, inherit.aes = FALSE, show.legend = FALSE
+        ) +
+        geom_line(data = model_plotdata, aes(x = rag, y = lwr), color = "red", linetype = 2, show.legend = FALSE) +
+        geom_line(data = model_plotdata, aes(x = rag, y = upr), color = "red", linetype = 2, show.legend = FALSE) +
+        geom_text(
+            aes(
+                x = rag, y = ref,
+                label = ifelse(datapoint == "Percentage of total Greenhouse gas emissions reduction (as of emissions of base year)",
+                    "Total GHG emissions\nreduction target (in %)", ""
+                )
+            ),
+            hjust = -0.1, color = "#419759", size = 3
+        ) +
+        annotate(
+            geom = "text",
+            label = latex2exp::TeX(paste0(
+                "$\\overset{",
+                "$\\beta$ = ", round(model$coefficients["rag"], 3),
+                if (summary(model)$coefficients["rag", "Pr(>|t|)"] < 0.001) "$***$" else "",
+                "}{Adj. R^2=", round(summary(model)$adj.r.squared, 2),
+                "}$"
+            ), output = "character"),
+            x = 0.1, y = 0.55, size = 3, parse = TRUE
+        ) +
+        scale_x_continuous(expand = c(0, 0), limits = c(0, 0.75)) +
+        scale_y_continuous(expand = c(0, 0), limits = c(0, 0.75)) +
+        labs(x = "ESG indicator (from ML framework)", y = "ESG indicator (from proprietary dataset)") +
+        theme(
+            panel.grid.major = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+            axis.ticks = element_line(linewidth = 0.25),
+            axis.ticks.length = unit(4, "pt"),
+            legend.position = "none"
+        )
+
+    # Add manual legend lines
+    legend_data <- data.frame(x = -1, y = -1, Legend = factor(
+        c("ESG indicator", "OLS regression", "95% confidence"),
+        levels = c("ESG indicator", "OLS regression", "95% confidence")
+    ))
+
+    pfinal <-
+        p +
+        geom_point(
+            data = subset(legend_data, Legend == "ESG indicator"),
+            aes(x = x, y = y, shape = Legend),
+            size = 3, fill = "gray", color = "white"
+        ) +
+        geom_line(
+            data = subset(legend_data, Legend == "OLS regression"),
+            aes(x = x, y = y, linetype = Legend, color = Legend),
+            size = 0.75
+        ) +
+        geom_line(
+            data = subset(legend_data, Legend == "95% confidence"),
+            aes(x = x, y = y, linetype = Legend, color = Legend),
+            size = 0.75
+        ) +
+        scale_shape_manual(name = "", values = c("ESG indicator" = 21)) +
+        scale_color_manual(name = "", values = c("ESG indicator" = "gray", "OLS regression" = "black", "95% confidence" = "red")) +
+        scale_linetype_manual(name = "", values = c("OLS regression" = "solid", "95% confidence" = "dashed")) +
+        theme(
+            legend.position = c(0.18, 0.9),
+            legend.text = element_text(size = 8),
+            legend.title = element_blank(),
+            legend.background = element_blank(),
+            legend.spacing.y = unit(-0.6, "cm"),
+            legend.key.spacing.y = unit(-0.25, "cm"),
+            plot.margin = margin(l = 10, r = 10, t = 10, b = 10)
+        )
+
+    # Save plot
+    ggsave(
+        here::here("fig", "fig-supp-ols-refinitiv.pdf"),
+        pfinal,
+        width = 4.5, height = 4.5, dpi = 300, units = "in", device = "pdf"
+    )
+
+    pfinal
+}
+```
+
+```{r}
+library(latex2exp)
+#| fig-cap: "Comparing of extracted values to validation dataset (manual annotation)"
+#| fig-width: 3.5
+#| fig-height: 3.5
+temp <-
+    df_merged_gt |>
+    rename(
+        rag_value = value_final,
+        datapoint = label_specification
+    ) |>
+    select(firm, year, topic, datapoint, rag_value, manual_value) |>
+    drop_na() |>
+    pivot_longer(
+        cols = c("manual_value", "rag_value"),
+        names_pattern = "(.*)_value",
+        names_to = "type",
+        values_to = "value"
+    ) |>
+    group_by(topic, datapoint) |>
+    filter(
+        value <= quantile(value, 0.99, na.rm = T)
+    ) |>
+    mutate(
+        value = (value - min(value)) / (max(value) - min(value))
+    ) |>
+    pivot_wider(
+        names_from = "type",
+        values_from = "value"
+    ) |>
+    drop_na() |>
+    group_by(topic, datapoint) |>
+    summarize(
+        n = n(),
+        manual = mean(manual),
+        rag = mean(rag)
+    ) |>
+    filter(n > 3)
+
+model <- lm(manual ~ rag, data = temp)
+
+x_grid <- data.frame(rag = seq(0, 0.75, length.out = 200))
+model_grid <- predict(model, newdata = x_grid, interval = "confidence")
+model_plotdata <- cbind(x_grid, model_grid)
+
+p <- ggplot(temp, aes(x = rag, y = manual)) +
+    geom_point(
+        aes(fill = topic),
+        colour = "white", pch = 21, alpha = .9, size = 3, show.legend = FALSE
+    ) +
+    scale_fill_manual(values = c("env" = "#419759", "soc" = "#A24688", "gov" = "#6D81CD")) +
+
+    # NEW: Use CI and regression line from model_plotdata
+    geom_line(data = model_plotdata, aes(x = rag, y = fit), color = "black") +
+    geom_line(data = model_plotdata, aes(x = rag, y = lwr), color = "red", linetype = 2) +
+    geom_line(data = model_plotdata, aes(x = rag, y = upr), color = "red", linetype = 2) +
+    annotate(
+        geom = "text",
+        label = latex2exp::TeX(paste0(
+            "$\\overset{",
+            "$\\beta$ = ", round(model$coefficients["rag"], 3),
+            if (summary(model)$coefficients["rag", "Pr(>|t|)"] < 0.001) "$***$" else "",
+            "}{Adj. R^2=", round(summary(model)$adj.r.sq, 2),
+            "}$"
+        ), output = "character"),
+        x = .1, y = .55, size = 3, parse = TRUE
+    ) +
+    scale_x_continuous(expand = c(0, 0), limits = c(0, 0.75)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 0.75)) +
+    labs(x = "ESG indicator (from ML framework)", y = "ESG indicator (from manual annotation)") +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+        axis.ticks = element_line(linewidth = 0.25),
+        axis.ticks.length = unit(4, "pt"),
+        legend.position = "none"
+    )
+legend_data <- data.frame(x = -1, y = -1, Legend = factor(
+    c("ESG indicator", "OLS regression", "95% confidence"),
+    levels = c("ESG indicator", "OLS regression", "95% confidence")
+))
+pfinal <-
+    p +
+    geom_point(
+        data = subset(legend_data, Legend == "ESG indicator"),
+        aes(x = x, y = y, shape = Legend),
+        size = 3, fill = "gray", color = "white"
+    ) +
+    geom_line(
+        data = subset(legend_data, Legend == "OLS regression"),
+        aes(x = x, y = y, linetype = Legend, color = Legend),
+        size = 0.75
+    ) +
+    geom_line(
+        data = subset(legend_data, Legend == "95% confidence"),
+        aes(x = x, y = y, linetype = Legend, color = Legend),
+        size = .75
+    ) +
+    scale_shape_manual(name = "", values = c("ESG indicator" = 21)) +
+    scale_color_manual(name = "", values = c("ESG indicator" = "gray", "OLS regression" = "black", "95% confidence" = "red")) +
+    scale_linetype_manual(name = "", values = c("OLS regression" = "solid", "95% confidence" = "dashed")) +
+    theme(
+        legend.position = c(0.18, 0.9),
+        legend.text = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.background = element_blank(),
+        legend.spacing.y = unit(-0.6, "cm"),
+        legend.key.spacing.y = unit(-0.25, "cm"),
+        plot.margin = margin(l = 10, r = 10, t = 10, b = 10),
+        # axis.text = element_text(size = 8),
+        # axis.title = element_text(size = 8)
+    )
+ggsave(
+    here("fig", "fig-supp-ols-manual.pdf"),
+    pfinal,
+    width = 4.5, height = 4.5, dpi = 300, units = "in", device = "pdf"
+)
+pfinal
+```
+
+
+\newpage
+\recalctypearea
+\KOMAoptions{paper=landscape}
+\newgeometry{left=2cm, right=2cm, top=2cm}
+
+```{r}
+if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
+    temp <-
+        df_merged_gt |>
+        rename(
+            rag_value = value_final,
+            datapoint = label_specification
+        ) |>
+        select(firm, year, discl_req, topic, datapoint, rag_value, ref_value) |>
+        drop_na() |>
+        pivot_longer(cols = c(rag_value, ref_value)) |>
+        group_by(discl_req, topic, datapoint) |>
+        filter(value <= quantile(value, 0.99, na.rm = TRUE)) |>
+        ungroup() |>
+        pivot_wider() |>
+        drop_na() |>
+        group_by(discl_req, topic, datapoint) |>
+        summarize(
+            n = n(),
+            n_fmt = sprintf("$\\textit{n}$=%d", n),
+            cor_test = list(cor.test(ref_value, rag_value, method = "spearman")),
+            cor = cor_test[[1]]$estimate,
+            tstat = round(cor_test[[1]]$statistic, 1),
+            pval = cor_test[[1]]$p.value,
+            stars = case_when(
+                pval < 0.01 ~ sprintf("%.2f***", cor),
+                pval < 0.05 ~ sprintf("%.2f**", cor),
+                pval < 0.1 ~ sprintf("%.2f*", cor),
+                TRUE ~ sprintf("%.2f", cor)
+            ),
+            .groups = "drop"
+        ) |>
+        mutate(
+            datapoint = recode(datapoint,
+                "Number of days lost to work-related injuries and fatalities from work-related accidents, work-related ill health and fatalities from ill health: Employees" =
+                    "Days lost to work-related injuries and fatalities: Employees",
+                "Number of days lost to work-related injuries and fatalities from work-related accidents, work-related ill health and fatalities from ill health: Non-employees" =
+                    "Days lost to work-related injuries and fatalities: Non-employees",
+                "Number of fatalities in own workforce as result of work-related injuries and work-related ill health: Employees" =
+                    "Number of fatalities as result of work-related injuries and work-related ill health: Employees",
+                "Number of fatalities in own workforce as result of work-related injuries and work-related ill health: Non-employees" =
+                    "Number of fatalities as result of work-related injuries and work-related ill health: Non-employees"
+            ),
+            datapoint = sprintf("%s (%s)", datapoint, discl_req)
+        )
+
+    p <- temp |>
+        ggplot(aes(x = cor, y = reorder(datapoint, cor), fill = topic)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = latex2exp::TeX(stars, output = "character")),
+            nudge_x = 0.05, size = 2.5, parse = T
+        ) +
+        geom_text(aes(
+            label = latex2exp::TeX(n_fmt, output = "character"),
+            x = I(1) + 0.01
+        ), size = 3, hjust = 0, parse = T) +
+        scale_x_continuous(expand = c(0, 0), limits = c(0, 1.3), labels = c(0, 0.25, 0.5, 0.75, 1)) +
+        coord_cartesian(xlim = c(0, 1), clip = "off") +
+        labs(x = "Correlation coefficient", y = "") +
+        theme(
+            legend.position = "none",
+            panel.grid.major.y = element_blank(),
+            panel.grid.major.x = element_line(linewidth = 0.5, linetype = 2),
+            axis.text.y = element_text(hjust = 0),
+            axis.ticks.y = element_blank(),
+            plot.margin = unit(c(1, 3, 1, 1), "lines")
+        )
+
+    p
+
+    ggsave(
+        here("fig", "fig-supp-correlations-refinitiv.pdf"),
+        p,
+        width = 11, height = 6, dpi = 300, units = "in", device = "pdf"
+    )
+}
+```
+
+```{r}
+library(psych)
+
+id_list <- c(
+    "35df55cb-a735-4ad4-a7c8-af01cbc779f0",
+    "d61d5d6d-2e6e-47b1-8031-81abfe00d653",
+    "5f8c310c-e820-4b44-ba6b-99d95c0d0d5c",
+    "6ed13e4c-35ef-4fa9-ac1e-941a4fed1ec7",
+    "9225942b-12bd-41b4-8a4b-28b1c9f740ca",
+    "ca9dd4e3-5874-44b8-875e-65de02621443",
+    "1218f8cc-15a9-42c0-8b4e-65fdce00f1b6",
+    "edac81ea-2fd0-47cc-b161-4824cfe7c1b8",
+    "2339201a-d76d-42e0-963c-92c7030809c5",
+    "bd3026ce-850e-4c9c-94c0-714b8bf7c18e",
+    "39690563-72b0-4aa4-8212-e2297db7498b",
+    "eb470afe-72b6-4247-b110-8918be3e1d56",
+    "dc11a987-5ea7-49e0-aea2-cf70626c6e36",
+    "6fe082c7-9b1a-4d0c-a534-d11e60e6cbf0",
+    "ae179085-f828-4983-a2c2-14e9747c6c90",
+    "05ee17a8-a71f-4384-85aa-fe13c35c15c1",
+    "19ec1538-8f1c-4c9b-9b0e-3dca1d3e1d91",
+    "6f3c6826-4926-43a0-bd67-7000f96333e3",
+    "712d7bb8-626b-48d6-b0f4-0bbe8bbc64b1",
+    "50c96585-1341-4139-9c6b-edb2e487668f",
+    "7c966679-3964-4ebe-bc33-0e96343dca51"
+)
+
+company_year_list1 <- c(
+    "3ab3f5ac-9724-44f3-ae2e-ebb12dd69afd_2022",
+    "4d1f5403-0d51-4b17-8d29-cabcd82fbcee_2022",
+    "6526a1bc-2d14-46d0-b061-6957e4b98488_2018",
+    "feda5e75-2eb3-4e8f-ae23-c0b8081283fe_2023",
+    "3890ac68-498c-4d93-b22b-bf829c471ee5_2016"
+)
+
+company_year_list2 <- c(
+    "96464abb-f1df-4978-8a3b-456c41cbcdcc_2023",
+    "b7841033-7981-4d5a-b12b-68b1b879fae6_2018",
+    "da03cb6c-05e0-45f2-ae73-65c80e4f172c_2015",
+    "06e4ad37-74d6-4a30-9884-ab0ef4eec243_2021",
+    "e1b09b82-331e-49f1-882f-d22409638bb3_2019"
+)
+
+
+data_set1 <- df_merged_gt |>
+    mutate(company_year = paste(firm, year, sep = "_")) |>
+    filter(
+        id %in% id_list,
+        company_year %in% company_year_list1
+    ) |>
+    select(manual_value, manual_value_annotator2)
+
+
+data_set2 <- df_merged_gt |>
+    mutate(company_year = paste(firm, year, sep = "_")) |>
+    filter(
+        id %in% id_list,
+        company_year %in% company_year_list2
+    ) |>
+    select(manual_value, manual_value_annotator2)
+
+
+# ICC for Set 1: Raters A and C
+icc_set1 <- psych::ICC(data_set1)
+
+# ICC for Set 2: Raters B and C
+icc_set2 <- psych::ICC(data_set2)
+```
+
+

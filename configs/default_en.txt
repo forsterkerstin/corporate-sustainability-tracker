@@ -1,0 +1,254 @@
+# Default Pint units definition file
+# Based on the International System of Units
+# Language: english
+# :copyright: 2013,2019 by Pint Authors, see AUTHORS for more details.
+
+# Syntax
+# ======
+# Units
+# -----
+# <canonical name> = <relation to another unit or dimension> [= <symbol>] [= <alias>] [ = <alias> ] [...]
+#
+# The canonical name and aliases should be expressed in singular form.
+# Pint automatically deals with plurals built by adding 's' to the singular form; plural
+# forms that don't follow this rule should be instead explicitly listed as aliases.
+#
+# If a unit has no symbol and one wants to define aliases, then the symbol should be
+# conventionally set to _.
+#
+# Example:
+#     millennium = 1e3 * year = _ = millennia
+#
+#
+# Prefixes
+# --------
+# <prefix>- = <amount> [= <symbol>] [= <alias>] [ = <alias> ] [...]
+#
+# Example:
+#     deca- =  1e+1  = da- = deka-
+#
+#
+# Derived dimensions
+# ------------------
+# [dimension name] = <relation to other dimensions>
+#
+# Example:
+#     [density] = [mass] / [volume]
+#
+# Note that primary dimensions don't need to be declared; they can be
+# defined for the first time in a unit definition.
+# E.g. see below `meter = [length]`
+#
+#
+# Additional aliases
+# ------------------
+# @alias <canonical name or previous alias> = <alias> [ = <alias> ] [...]
+#
+# Used to add aliases to already existing unit definitions.
+# Particularly useful when one wants to enrich definitions
+# from defaults_en.txt with custom aliases.
+#
+# Example:
+#     @alias meter = my_meter
+
+# See also: https://pint.readthedocs.io/en/latest/defining.html
+
+@defaults
+    group = international
+    system = mks
+@end
+
+
+#### PREFIXES ####
+
+# decimal prefixes
+quecto- = 1e-30 = q-
+ronto- = 1e-27 = r-
+yocto- = 1e-24 = y-
+zepto- = 1e-21 = z-
+atto- =  1e-18 = a-
+femto- = 1e-15 = f-
+pico- =  1e-12 = p-
+nano- =  1e-9  = n-
+# The micro (U+00B5) and Greek mu (U+03BC) are both valid prefixes,
+# and they often use the same glyph.
+micro- = 1e-6  = µ- = μ- = u- = mu- = mc-
+milli- = 1e-3  = m-
+centi- = 1e-2  = c-
+deci- =  1e-1  = d-
+deca- =  1e+1  = da- = deka-
+hecto- = 1e2   = h-
+kilo- =  1e3   = k-
+mega- =  1e6   = M-
+giga- =  1e9   = G-
+tera- =  1e12  = T-
+peta- =  1e15  = P-
+exa- =   1e18  = E-
+zetta- = 1e21  = Z-
+yotta- = 1e24  = Y-
+ronna- = 1e27 = R-
+quetta- = 1e30 = Q-
+
+
+#### BASE UNITS ####
+
+meter = [length] = m = metre
+second = [time] = s = sec
+ampere = [current] = A = amp
+candela = [luminosity] = cd = candle
+gram = [mass] = g
+mole = [substance] = mol
+kelvin = [temperature]; offset: 0 = K = degK = °K = degree_Kelvin = degreeK  # older names supported for compatibility
+radian = [] = rad
+bit = []
+count = []
+
+
+#### CONSTANTS ####
+
+@import constants_en.txt
+
+
+#### UNITS ####
+# Common and less common, grouped by quantity.
+# Conversion factors are exact (except when noted),
+# although floating-point conversion may introduce inaccuracies
+
+# Angle
+turn = 2 * π * radian = _ = revolution = cycle = circle
+degree = π / 180 * radian = deg = arcdeg = arcdegree = angular_degree
+arcminute = degree / 60 = arcmin = arc_minute = angular_minute
+arcsecond = arcminute / 60 = arcsec = arc_second = angular_second
+milliarcsecond = 1e-3 * arcsecond = mas
+grade = π / 200 * radian = grad = gon
+mil = π / 32000 * radian
+
+# Solid angle
+steradian = radian ** 2 = sr
+square_degree = (π / 180) ** 2 * sr = sq_deg = sqdeg
+
+# Information
+baud = bit / second = Bd = bps
+
+byte = 8 * bit = B = octet
+# byte = 8 * bit = _ = octet
+## NOTE: B (byte) symbol can conflict with Bell
+
+# Ratios
+percent = 0.01 = %
+permille = 0.001 = ‰
+ppm = 1e-6
+
+# Length
+angstrom = 1e-10 * meter = Å = ångström = Å
+micron = micrometer = µ = μ
+fermi = femtometer = fm
+light_year = speed_of_light * julian_year = ly = lightyear
+astronomical_unit = 149597870700 * meter = au  # since Aug 2012
+parsec = 1 / tansec * astronomical_unit = pc
+nautical_mile = 1852 * meter = nmi
+bohr = hbar / (alpha * m_e * c) = a_0 = a0 = bohr_radius = atomic_unit_of_length = a_u_length
+planck_length = (hbar * gravitational_constant / c ** 3) ** 0.5
+
+# Mass
+metric_ton = 1e3 * kilogram = t = tonne
+unified_atomic_mass_unit = atomic_mass_constant = u = amu
+dalton = atomic_mass_constant = Da
+grain = 64.79891 * milligram = gr
+gamma_mass = microgram
+carat = 200 * milligram = ct = karat
+planck_mass = (hbar * c / gravitational_constant) ** 0.5
+
+# Time
+minute = 60 * second = min
+hour = 60 * minute = h = hr
+day = 24 * hour = d
+week = 7 * day
+fortnight = 2 * week
+year = 365.25 * day = a = yr = julian_year
+month = year / 12
+
+# decade = 10 * year
+## NOTE: decade [time] can conflict with decade [dimensionless]
+
+century = 100 * year = _ = centuries
+millennium = 1e3 * year = _ = millennia
+eon = 1e9 * year
+shake = 1e-8 * second
+svedberg = 1e-13 * second
+atomic_unit_of_time = hbar / E_h = a_u_time
+gregorian_year = 365.2425 * day
+sidereal_year = 365.256363004 * day                # approximate, as of J2000 epoch
+tropical_year = 365.242190402 * day                # approximate, as of J2000 epoch
+common_year = 365 * day
+leap_year = 366 * day
+sidereal_day = day / 1.00273790935079524           # approximate
+sidereal_month = 27.32166155 * day                 # approximate
+tropical_month = 27.321582 * day                   # approximate
+synodic_month = 29.530589 * day = _ = lunar_month  # approximate
+planck_time = (hbar * gravitational_constant / c ** 5) ** 0.5
+
+# Temperature
+degree_Celsius = kelvin; offset: 273.15 = °C = celsius = degC = degreeC
+degree_Rankine = 5 / 9 * kelvin; offset: 0 = °R = rankine = degR = degreeR
+degree_Fahrenheit = 5 / 9 * kelvin; offset: 233.15 + 200 / 9 = °F = fahrenheit = degF = degreeF
+degree_Reaumur = 4 / 5 * kelvin; offset: 273.15 = °Re = reaumur = degRe = degreeRe = degree_Réaumur = réaumur
+atomic_unit_of_temperature = E_h / k = a_u_temp
+planck_temperature = (hbar * c ** 5 / gravitational_constant / k ** 2) ** 0.5
+
+# Area
+[area] = [length] ** 2
+are = 100 * meter ** 2
+barn = 1e-28 * meter ** 2 = b
+darcy = centipoise * centimeter ** 2 / (second * atmosphere)
+hectare = 100 * are = ha
+
+# Volume
+[volume] = [length] ** 3
+liter = decimeter ** 3 = l = L = ℓ = litre
+cubic_centimeter = centimeter ** 3 = cc
+lambda = microliter = λ
+stere = meter ** 3
+
+# Force
+[force] = [mass] * [acceleration]
+newton = kilogram * meter / second ** 2 = N
+dyne = gram * centimeter / second ** 2 = dyn
+force_kilogram = g_0 * kilogram = kgf = kilogram_force = pond
+force_gram = g_0 * gram = gf = gram_force
+force_metric_ton = g_0 * metric_ton = tf = metric_ton_force = force_t = t_force
+atomic_unit_of_force = E_h / a_0 = a_u_force
+
+# Energy
+[energy] = [force] * [length]
+joule = newton * meter = J
+erg = dyne * centimeter
+watt_hour = watt * hour = Wh = watthour
+electron_volt = e * volt = eV
+rydberg = ℎ * c * R_inf = Ry
+hartree = 2 * rydberg = E_h = Eh = hartree_energy = atomic_unit_of_energy = a_u_energy
+calorie = 4.184 * joule = cal = thermochemical_calorie = cal_th
+international_calorie = 4.1868 * joule = cal_it = international_steam_table_calorie
+fifteen_degree_calorie = 4.1855 * joule = cal_15
+british_thermal_unit = 1055.056 * joule = Btu = BTU = Btu_iso
+international_british_thermal_unit = 1e3 * pound / kilogram * degR / kelvin * international_calorie = Btu_it
+thermochemical_british_thermal_unit = 1e3 * pound / kilogram * degR / kelvin * calorie = Btu_th
+quadrillion_Btu = 1e15 * Btu = quad
+therm = 1e5 * Btu = thm = EC_therm
+US_therm = 1.054804e8 * joule  # approximate, no exact definition
+ton_TNT = 1e9 * calorie = tTNT
+tonne_of_oil_equivalent = 1e10 * international_calorie = toe
+atmosphere_liter = atmosphere * liter = atm_l
+
+# Power
+[power] = [energy] / [time]
+watt = joule / second = W
+volt_ampere = volt * ampere = VA
+horsepower = 550 * foot * force_pound / second = hp = UK_horsepower = hydraulic_horsepower
+boiler_horsepower = 33475 * Btu / hour                            # unclear which Btu
+metric_horsepower = 75 * force_kilogram * meter / second
+electrical_horsepower = 746 * watt
+refrigeration_ton = 12e3 * Btu / hour = _ = ton_of_refrigeration  # approximate, no exact definition
+cooling_tower_ton = 1.25 * refrigeration_ton # approximate, no exact definition
+standard_liter_per_minute = atmosphere * liter / minute = slpm = slm
+conventional_watt_90 = K_J90 ** 2 * R_K90 / (K_J ** 2 * R_K) * watt = W_90
