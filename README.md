@@ -44,14 +44,15 @@ data/
 │       ├── fed_rates_yearly.csv
 │       ├── indicator_metadata.csv
 │       ├── manual_validation_set_annotator2.csv
-│       └── manual_validation_set.csv
+│       ├── manual_validation_set.csv
+│       └── report_ids.csv
 └── processed/
     └── results/
         ├── esg_indicators_postprocessed.csv
         ├── esg_indicators_validation.json
         └── reports_per_company_year.pdf
 ```
-3. Get the corporate report PDF files from the [download link](https://syncandshare.lrz.de/getlink/fiVfpX83ZUsRrKLk2YWenN/) and place them in the folder `data/raw/reports_pdf`.
+3. Get the corporate report PDF files from the [download link](https://syncandshare.lrz.de/getlink/fiVfpX83ZUsRrKLk2YWenN/) and place them in the folder `data/raw/reports_pdf`. Upon publication, the reports will be available via the [Sustainability Reporting Navigator](https://api.srnav.com/). A corresponding list of report IDs, which can be queried from the endpoint, is provided in `report_ids.csv`.
 
 4. (Optional) Get the proprietary data and place them in the folder `data/raw/datasets`. Exact instructions on file naming are provided in `notebooks\prepare_data.ipynb`.
    - [LSEG - Worldscope Fundamentals](https://www.lseg.com/en/data-analytics/financial-data/company-data/fundamentals-data/worldscope-fundamentals)
