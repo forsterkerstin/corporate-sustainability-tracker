@@ -49,8 +49,8 @@ data/
 └── processed/
     └── results/
         ├── esg_indicators_postprocessed.csv
-        ├── esg_indicators_validation.json
-        └── reports_per_company_year.pdf
+        ├── esg_indicators_validation.csv
+        └── reports_per_company_year.csv
 ```
 3. Get the corporate report PDF files from the [download link](https://syncandshare.lrz.de/getlink/fiVfpX83ZUsRrKLk2YWenN/) and place them in the folder `data/raw/reports_pdf`. Upon publication, the reports will be available via the [Sustainability Reporting Navigator](https://api.srnav.com/). A corresponding list of report IDs, which can be queried from the endpoint, is provided in `report_ids.csv`.
 
