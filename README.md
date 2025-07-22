@@ -12,14 +12,14 @@ Companies play a crucial role in reaching global sustainability goals, yet evide
 - **R (>= 4.0)** (for data analysis using Quarto)
 - **[Quarto CLI](https://quarto.org/docs/get-started/)** (for rendering `.qmd` reports)
 
-### Setup Instructions
-#### Python Environment
+### Setup instructions
+#### Python environment
 Install the required Python packages:
 
 ```bash
 pip3 install -r requirements.txt
 ```
-#### R Environment
+#### R environment
 Ensure R is installed. Packages are installed automatically upon running the main analysis script `analyses.qmd`.
 
 #### Quarto CLI
@@ -76,9 +76,18 @@ python corporate_sustainability_tracker/main.py
 - **Error Handling**: If any errors occur, the pipeline is designed to log them and, where possible, continue execution. Review the log files in the `logs/` directory for detailed error messages.
 
 ### Postprocess the results and prepare the analysis data
-- To postprocess the results (unit parsing and standardization): `notebooks\postprocess_units.ipynb`.
-- To postprocess the results for validation (i.e., without currency conversion): `notebooks\postprocess_units_for_validation.ipynb`.
-- To prepare the proprietary analysis data: `notebooks\prepare_data.ipynb`.
+- To postprocess the results (unit parsing and standardization):
+  ```
+  jupyter notebook notebooks/postprocess_units.ipynb
+  ```
+- To postprocess the results for validation (i.e., without currency conversion):
+  ```
+  jupyter notebook notebooks/postprocess_units_for_validation.ipynb
+  ```
+- To prepare the proprietary analysis data:
+  ```
+  jupyter notebook notebooks/prepare_data.ipynb
+  ```
 
 ### Reproduce the analysis
 The analysis is conducted in R using [Quarto](https://quarto.org). The core script `analyses.qmd` compiles the main results. Additional `.qmd` modules in the `chunks/` folder contain supplementary and figure-specific code.
