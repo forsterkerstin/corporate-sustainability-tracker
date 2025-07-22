@@ -54,7 +54,7 @@ data/
 ```
 3. Get the corporate report PDF files from the [download link](https://syncandshare.lrz.de/getlink/fiVfpX83ZUsRrKLk2YWenN/) and place them in the folder `data/raw/reports_pdf`. Upon publication, the reports will be available via the [Sustainability Reporting Navigator](https://api.srnav.com/). A corresponding list of report IDs, which can be queried from the endpoint, is provided in `report_ids.csv`.
 
-4. (Optional) Get the proprietary data and place them in the folder `data/raw/datasets`. Exact instructions on file naming are provided in `notebooks\prepare_data.ipynb`.
+4. (Optional) Get the proprietary data and place them in the folder `data/raw/datasets`. Exact instructions on file naming are provided in `notebooks/prepare_data.ipynb`.
    - [LSEG - Worldscope Fundamentals](https://www.lseg.com/en/data-analytics/financial-data/company-data/fundamentals-data/worldscope-fundamentals)
    - [LSEG - Refinitiv ESG Scores](https://www.lseg.com/en/data-analytics/sustainable-finance/esg-scores)
    - [MSCI ESG Ratings](https://www.msci.com/data-and-analytics/sustainability-solutions/esg-ratings)
