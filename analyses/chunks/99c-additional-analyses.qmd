@@ -763,6 +763,2132 @@ ggsave(
 knitr::include_graphics(here("fig/fig-gov-impacts-early-adop.pdf"))
 
 ```
+### Environmental performance constant reporters vs. all
+
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+constant_reporters <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/constant_reporters.json")
+) # TEMP: decide on where JSON file should be stored
+
+selected_indicators <- c(
+    "Total scope 1 emissions [tCO₂eq]",
+    "Total scope 2 emissions (market-based) [tCO₂eq]",
+    "Total scope 3 emissions [tCO₂eq]",
+    # "Scope 3 emissions (Cloud computing and data center services) [tCO₂eq]",
+    "Category 6 Travel [tCO₂eq]",
+    # "Scope 3 emissions (Commuting) [tCO₂eq]",
+    "Energy consumption [MWh]",
+    "Renewable sources in total energy consumption [%]",
+    # "Fossil sources in total energy consumption [%]",
+    "Water consumption [m³]",
+    "Total waste generated [t]",
+    "Non-recycled waste [%]"
+)
+
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+# prepare base data with renamed labels
+temp_renamed <- temp |>
+    select(firm, year, topic, id, label_specification, value_final) |>
+    mutate(
+        label_specification = recode(label_specification, !!!renamer_env),
+        label_specification = factor(label_specification, levels = unname(renamer_env))
+    ) |>
+    filter(topic == "env", label_specification %in% selected_indicators) |>
+    drop_na(value_final)
+
+# create mapping from display name to indicator ID
+tmp <- temp_renamed |>
+  dplyr::distinct(id, label_specification)
+
+name_to_id_map <- stats::setNames(tmp$id, as.character(tmp$label_specification))
+
+# flag constant reporters for each observation
+temp_flagged <- temp_renamed |>
+    rowwise() |>
+    mutate(
+        ind_id = name_to_id_map[as.character(label_specification)],
+        is_constant_reporter = if (!is.na(ind_id) && ind_id %in% names(constant_reporters)) {
+            firm %in% constant_reporters[[ind_id]]
+        } else {
+            FALSE
+        }
+    ) |>
+    ungroup() |>
+    select(-ind_id)
+
+# compute grouping info for constant reporters
+grouping_info <- temp_flagged |>
+    filter(is_constant_reporter == TRUE) |>
+    group_by(label_specification, year) |>
+    summarise(
+        n = n(),
+        .groups = "drop"
+    ) |>
+    mutate(
+        n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+        n_group = factor(n_group, levels = n_labels)
+    )
+
+# compute summaries for ALL companies
+p_all <- temp_flagged |>
+    group_by(label_specification, year) |>
+    summarise(
+        p10 = quantile(value_final, 0.10, na.rm = TRUE),
+        q1 = quantile(value_final, 0.25, na.rm = TRUE),
+        median = quantile(value_final, 0.50, na.rm = TRUE),
+        q3 = quantile(value_final, 0.75, na.rm = TRUE),
+        p90 = quantile(value_final, 0.90, na.rm = TRUE),
+        group = "All companies",
+        .groups = "drop"
+    )
+
+# compute summaries for CONSTANT REPORTERS only
+p_constant <- temp_flagged |>
+    filter(is_constant_reporter == TRUE) |>
+    group_by(label_specification, year) |>
+    summarise(
+        p10 = quantile(value_final, 0.10, na.rm = TRUE),
+        q1 = quantile(value_final, 0.25, na.rm = TRUE),
+        median = quantile(value_final, 0.50, na.rm = TRUE),
+        q3 = quantile(value_final, 0.75, na.rm = TRUE),
+        p90 = quantile(value_final, 0.90, na.rm = TRUE),
+        group = "Constant reporters",
+        .groups = "drop"
+    )
+
+# combine both
+p_env <- bind_rows(p_all, p_constant) |>
+    left_join(grouping_info, by = c("label_specification", "year")) |>
+    mutate(
+        n_group = factor(n_group, levels = n_labels),
+        group = factor(group, levels = c("All companies", "Constant reporters"))
+    )
+
+# compute n values for constant reporters
+n_values <- temp_flagged |>
+    filter(is_constant_reporter == TRUE) |>
+    group_by(label_specification) |>
+    summarise(n = n(), .groups = "drop")
+
+# set y axis limits independently for emission metrics
+emission_indicators <- c(
+    "Total Scope 1 emissions [tCO₂eq]",
+    "Total scope 2 emissions (market-based) [tCO₂eq]",
+    "Total scope 3 emissions [tCO₂eq]",
+    "Category 6 Travel [tCO₂eq]"
+)
+
+shared_emission_max <- p_env |>
+    filter(label_specification %in% emission_indicators) |>
+    summarise(ymax = max(p90, q3, na.rm = TRUE)) |>
+    pull(ymax) * 1.1
+
+
+plotting <- function(indicator) {
+    indicator_title <- switch(indicator,
+        "Total scope 1 emissions [tCO₂eq]" = expression(Total ~ scope ~ 1 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Total scope 2 emissions (market-based) [tCO₂eq]" = expression(Total ~ scope ~ 2 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Total scope 3 emissions [tCO₂eq]" = expression(Total ~ Scope ~ 3 ~ emissions ~ "[tCO"[2] * "eq]"),
+        "Scope 3 emissions (Cloud computing and data center services) [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Cloud ~ computing ~ and ~ data ~ center ~ services) ~ "[tCO"[2] * "eq"),
+        "Category 6 Travel [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Travel) ~ "[tCO"[2] * "eq]"),
+        "Scope 3 emissions (Commuting) [tCO₂eq]" = expression(Scope ~ 3 ~ emissions ~ (Commuting) ~ "[tCO"[2] * "eq"),
+        "Energy consumption [MWh]" = expression(Energy ~ consumption ~ "[MWh]"),
+        "Renewable sources in total energy consumption [%]" = expression(atop("Renewable sources in total", "energy consumption [%]")),
+        "Fossil sources in total energy consumption [%]" = expression(atop("Fossil sources in total", "energy consumption [%]")),
+        "Water consumption [m³]" = expression(Water ~ consumption ~ "[m"^3 * "]"),
+        "Total waste generated [t]" = expression(Total ~ waste ~ generated ~ "[t]"),
+        "Non-recycled waste [%]" = expression("Non-recycled waste [%]"),
+        expression(.(indicator))
+    )
+
+    data_filtered <- p_env |>
+        filter(label_specification == indicator) |>
+        mutate(n_group = factor(n_group, levels = n_labels)) |>
+        complete(
+            year,
+            label_specification,
+            group = c("All companies", "Constant reporters"),
+            n_group = factor(n_labels, levels = n_labels)
+        )
+
+    n_label <- n_values |>
+        filter(label_specification == indicator) |>
+        pull(n)
+
+    label_n <- paste0("italic(n)==", n_label)
+
+    # use dynamic y-axis limits
+    y_min_raw <- min(data_filtered$p10, data_filtered$q1, na.rm = TRUE)
+    y_min <- if (y_min_raw < 1) 1 else 1
+
+    y_max <- if (indicator %in% emission_indicators) {
+        shared_emission_max
+    } else {
+        max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+    }
+
+    p <- ggplot(data_filtered, aes(x = year))
+
+    if (indicator == "Category 6 Travel [tCO₂eq]") {
+        p <- p +
+            geom_rect(
+                data = tibble(xmin = 2020, xmax = 2023, ymin = 1, ymax = 12000000),
+                aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+                fill = "grey85", alpha = 0.3, inherit.aes = FALSE
+            ) +
+            annotate(
+                "text",
+                x = 2020.3, y = 500000,
+                label = "COVID-19\npandemic",
+                hjust = 0, size = 4, color = "grey30"
+            )
+    }
+
+    p <- p +
+        geom_line(
+            data = filter(data_filtered, !is.na(median)),
+            aes(y = median, color = group, linetype = group),
+            size = 1
+        )
+
+    if (indicator %in% c(
+        "Renewable sources in total energy consumption [%]",
+        "Non-recycled waste [%]"
+    )) {
+        p <- p +
+            scale_y_continuous(
+                limits = c(
+                    min(data_filtered$p10, na.rm = TRUE) * 0.9,
+                    max(data_filtered$p90, na.rm = TRUE) * 1.1
+                ),
+                labels = scales::comma_format()
+            )
+    } else {
+        p <- p +
+            scale_y_continuous(
+                trans = "log10",
+                labels = scales::comma_format(),
+                limits = c(1, y_max),
+                oob = scales::oob_keep
+            )
+    }
+
+    p <- p +
+        scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+        scale_color_manual(
+            values = c("All companies" = "grey50", "Constant reporters" = "#2E6F40"),
+            name = NULL
+        ) +
+        scale_linetype_manual(
+            values = c("All companies" = "dashed", "Constant reporters" = "solid"),
+            name = NULL
+        ) +
+        theme_minimal() +
+        theme(
+            plot.title = element_text(size = 14, hjust = 0.5),
+            panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+            panel.grid.minor.y = element_blank(),
+            axis.ticks = element_line(color = "grey"),
+            axis.ticks.length = unit(0.15, "cm"),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16)
+        ) +
+        labs(
+            title = bquote(.(indicator_title)),
+            x = "",
+            y = parse(text = "")
+        )
+
+    label_grob <- grid::textGrob(
+        label = parse(text = label_n),
+        x = unit(0.98, "npc"),
+        y = unit(0.95, "npc"),
+        just = c("right", "bottom"),
+        gp = gpar(fontsize = 14)
+    )
+
+    p <- p + annotation_custom(label_grob)
+
+    ggsave(
+        filename = here("fig", paste0("fig-constant-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+        plot = p,
+        width = 5, height = 5, dpi = 400, units = "in", device = "png"
+    )
+
+    return(p)
+}
+
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- wrap_plots(plots) +
+    plot_layout(
+        ncol = 3,
+        guides = "collect"
+    ) +
+    plot_annotation(
+        tag_levels = "a"
+    ) &
+    theme(
+        plot.tag = element_text(face = "bold", size = 20),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.justification = "center",
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 16)
+    )
+
+ggsave(
+    here("fig", "fig-env-impacts-constant-reporters.pdf"),
+    pfinal,
+    width = 16, height = 15, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here("fig/fig-env-impacts-constant-reporters.pdf"))
+```
+
+### Social performance constant reporters vs. all
+
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+constant_reporters <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/constant_reporters.json")
+) # TEMP: decide on where JSON file should be stored
+
+
+selected_indicators <- c(
+  "Employee turnover [%]",
+  "Employees covered by collective bargaining agreements [%]",
+  "# Training hours per employee",
+  "# Days lost to work-related injuries, ill health, and fatalities among employees",
+  "Female employees in top managment [%]",
+  "Gender pay gap [%]",
+  "Annual remuneration ratio [%]",
+  "# Complaints filed by own workforce",
+  "Amount of fines, penalties, and compensation for damages as result of incidents and complaints [USD]"
+)
+
+# bins
+n_breaks  <- c(0, 150, 300, Inf)
+n_labels  <- c("≤150", "≤300", ">300")
+
+# prepare base data + rename labels
+temp_renamed <- temp |>
+  select(firm, year, topic, id, label_specification, value_final) |>
+  mutate(
+    label_specification = recode(label_specification, !!!renamer_soc),
+    label_specification = factor(label_specification, levels = unname(renamer_soc))
+  ) |>
+  filter(topic == "soc", label_specification %in% selected_indicators) |>
+  drop_na(value_final)
+
+# create mapping from display label -> indicator id
+tmp <- temp_renamed |>
+  distinct(id, label_specification)
+
+name_to_id_map <- stats::setNames(tmp$id, as.character(tmp$label_specification))
+
+# flag constant reporters observation-wise
+temp_flagged <- temp_renamed |>
+  rowwise() |>
+  mutate(
+    ind_id = name_to_id_map[as.character(label_specification)],
+    is_constant_reporter = if (!is.na(ind_id) && ind_id %in% names(constant_reporters)) {
+      firm %in% constant_reporters[[ind_id]]
+    } else {
+      FALSE
+    }
+  ) |>
+  ungroup() |>
+  select(-ind_id)
+
+# grouping info
+grouping_info <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification, year) |>
+  summarise(n = n(), .groups = "drop") |>
+  mutate(
+    n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+    n_group = factor(n_group, levels = n_labels)
+  )
+
+p10_fun <- function(x, label) {
+  if (label != "Gender pay gap [%]") pmax(stats::quantile(x, 0.10, na.rm = TRUE), 1)
+  else stats::quantile(x, 0.10, na.rm = TRUE)
+}
+
+# summaries for ALL
+p_all <- temp_flagged |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10    = p10_fun(value_final, dplyr::first(label_specification)),
+    q1     = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3     = quantile(value_final, 0.75, na.rm = TRUE),
+    p90    = quantile(value_final, 0.90, na.rm = TRUE),
+    group  = "All companies",
+    .groups = "drop"
+  )
+
+# summaries for CONSTANT REPORTERS only
+p_constant <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification, year) |>
+  mutate(
+    lower_bound = quantile(value_final, 0.00, na.rm = TRUE),
+    upper_bound = quantile(value_final, 0.99, na.rm = TRUE),
+    value_final = pmin(pmax(value_final, lower_bound), upper_bound)
+  ) |>
+  ungroup() |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10    = p10_fun(value_final, dplyr::first(label_specification)),
+    q1     = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3     = quantile(value_final, 0.75, na.rm = TRUE),
+    p90    = quantile(value_final, 0.90, na.rm = TRUE),
+    group  = "Constant reporters",
+    .groups = "drop"
+  )
+
+p_soc <- bind_rows(p_all, p_constant) |>
+  left_join(grouping_info, by = c("label_specification", "year")) |>
+  mutate(
+    n_group = factor(n_group, levels = n_labels),
+    group   = factor(group, levels = c("All companies", "Constant reporters"))
+  )
+
+# n label (counts for constant reporters)
+n_values <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification) |>
+  summarise(n = n(), .groups = "drop")
+
+# indicators that should stay on linear scale
+linear_indicators <- c(
+  "Employee turnover [%]",
+  "Employees covered by collective bargaining agreements [%]",
+  "Female employees in top managment [%]",
+  "Gender pay gap [%]",
+  "Annual remuneration ratio [%]"
+)
+
+plotting <- function(indicator) {
+
+  data_filtered <- p_soc |>
+    filter(label_specification == indicator) |>
+    mutate(n_group = factor(n_group, levels = n_labels)) |>
+    tidyr::complete(
+      year,
+      label_specification,
+      group = c("All companies", "Constant reporters"),
+      n_group = factor(n_labels, levels = n_labels)
+    )
+
+  n_label <- n_values |>
+    filter(label_specification == indicator) |>
+    pull(n)
+
+  label_n <- paste0("italic(n)==", n_label)
+
+  # y max (only used for log-scale)
+  y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+  p <- ggplot(data_filtered, aes(x = year)) +
+    geom_line(
+      data = dplyr::filter(data_filtered, !is.na(median)),
+      aes(y = median, color = group, linetype = group),
+      linewidth = 1
+    )
+
+  if (indicator %in% linear_indicators) {
+    p <- p +
+      scale_y_continuous(
+        limits = c(
+          min(data_filtered$p10, na.rm = TRUE) * 0.9,
+          max(data_filtered$p90, na.rm = TRUE) * 1.1
+        ),
+        labels = scales::comma_format()
+      )
+  } else {
+    p <- p +
+      scale_y_continuous(
+        trans = "log10",
+        labels = scales::comma_format(),
+        limits = c(1, y_max),
+        oob = scales::oob_keep
+      )
+  }
+
+  p <- p +
+    scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+    scale_color_manual(
+      values = c("All companies" = "grey50", "Constant reporters" = "#6F2E5D"),
+      name = NULL
+    ) +
+    scale_linetype_manual(
+      values = c("All companies" = "dashed", "Constant reporters" = "solid"),
+      name = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, hjust = 0.5),
+      panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+      panel.grid.minor.y = element_blank(),
+      axis.ticks = element_line(color = "grey"),
+      axis.ticks.length = unit(0.15, "cm"),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    labs(
+      title = stringr::str_wrap(indicator, width = 45),
+      x = "",
+      y = parse(text = "")
+    )
+
+  label_grob <- grid::textGrob(
+    label = parse(text = label_n),
+    x = unit(0.98, "npc"),
+    y = unit(0.95, "npc"),
+    just = c("right", "bottom"),
+    gp = grid::gpar(fontsize = 14)
+  )
+
+  p <- p + annotation_custom(label_grob)
+
+  ggsave(
+    filename = here("fig", paste0("fig-soc-constant-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+    plot = p,
+    width = 5, height = 5, dpi = 400, units = "in", device = "png"
+  )
+
+  p
+}
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- patchwork::wrap_plots(plots) +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 20),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.justification = "center",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16)
+  )
+
+ggsave(
+  here("fig", "fig-soc-impacts-constant-reporters.pdf"),
+  pfinal,
+  width = 16, height = 17, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here("fig/fig-soc-impacts-constant-reporters.pdf"))
+```
+
+### Governance performance constant reporters vs. all
+
+```{r}
+#| fig-width: 15
+#| fig-height: 5.5
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+constant_reporters <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/constant_reporters.json")
+) # TEMP: decide on where JSON file should be stored
+
+selected_indicators <- c(
+  "Independent board members [%]",
+  "Lobbying expenses [USD]",
+  "# Days to pay invoice"
+)
+
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+# prepare base data + rename labels
+temp_renamed <- temp |>
+  select(firm, year, topic, id, label_specification, value_final) |>
+  mutate(
+    label_specification = recode(label_specification, !!!renamer_gov),
+    label_specification = factor(label_specification, levels = unname(renamer_gov))
+  ) |>
+  filter(topic == "gov", label_specification %in% selected_indicators) |>
+  drop_na(value_final)
+
+# create mapping from display label -> indicator id
+tmp <- temp_renamed |>
+  distinct(id, label_specification)
+
+name_to_id_map <- stats::setNames(tmp$id, as.character(tmp$label_specification))
+
+# flag constant reporters per observation (firm x year x indicator)
+temp_flagged <- temp_renamed |>
+  rowwise() |>
+  mutate(
+    ind_id = name_to_id_map[as.character(label_specification)],
+    is_constant_reporter = if (!is.na(ind_id) && ind_id %in% names(constant_reporters)) {
+      firm %in% constant_reporters[[ind_id]]
+    } else {
+      FALSE
+    }
+  ) |>
+  ungroup() |>
+  select(-ind_id)
+
+# grouping info for constant reporters
+grouping_info <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification, year) |>
+  summarise(n = n(), .groups = "drop") |>
+  mutate(
+    n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+    n_group = factor(n_group, levels = n_labels)
+  )
+
+# summaries: ALL companies
+p_all <- temp_flagged |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10 = pmax(quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1 = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3 = quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = quantile(value_final, 0.90, na.rm = TRUE),
+    group = "All companies",
+    .groups = "drop"
+  )
+
+# summaries: CONSTANT REPORTERS
+p_constant <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification, year) |>
+  mutate(
+    lower_bound = quantile(value_final, 0.00, na.rm = TRUE),
+    upper_bound = quantile(value_final, 0.99, na.rm = TRUE),
+    value_final = pmin(pmax(value_final, lower_bound), upper_bound)
+  ) |>
+  ungroup() |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10 = pmax(quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1 = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3 = quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = quantile(value_final, 0.90, na.rm = TRUE),
+    group = "Constant reporters",
+    .groups = "drop"
+  )
+
+p_gov <- bind_rows(p_all, p_constant) |>
+  left_join(grouping_info, by = c("label_specification", "year")) |>
+  mutate(
+    n_group = factor(n_group, levels = n_labels),
+    group = factor(group, levels = c("All companies", "Constant reporters"))
+  )
+
+# n label (constant reporters counts)
+n_values <- temp_flagged |>
+  filter(is_constant_reporter == TRUE) |>
+  group_by(label_specification) |>
+  summarise(n = n(), .groups = "drop")
+
+# indicators that should stay on linear scale
+linear_indicators <- c("Independent board members [%]")
+
+plotting <- function(indicator) {
+
+  data_filtered <- p_gov |>
+    filter(label_specification == indicator) |>
+    mutate(n_group = factor(n_group, levels = n_labels)) |>
+    tidyr::complete(
+      year,
+      label_specification,
+      group = c("All companies", "Constant reporters"),
+      n_group = factor(n_labels, levels = n_labels)
+    )
+
+  n_label <- n_values |>
+    filter(label_specification == indicator) |>
+    pull(n)
+  
+  # if no match, set to 0
+  if (length(n_label) == 0 || is.na(n_label)) n_label <- 0
+
+  label_n <- sprintf("italic(n)==%s", n_label)
+
+  y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+  p <- ggplot(data_filtered, aes(x = year)) +
+    geom_line(
+      data = dplyr::filter(data_filtered, !is.na(median)),
+      aes(y = median, color = group, linetype = group),
+      linewidth = 1
+    )
+
+  if (indicator %in% linear_indicators) {
+    p <- p +
+      scale_y_continuous(
+        limits = c(
+          min(data_filtered$p10, na.rm = TRUE) * 0.9,
+          max(data_filtered$p90, na.rm = TRUE) * 1.1
+        ),
+        labels = scales::comma_format()
+      )
+  } else {
+    p <- p +
+      scale_y_continuous(
+        trans = "log10",
+        labels = scales::comma_format(),
+        limits = c(1, y_max),
+        oob = scales::oob_keep
+      )
+  }
+
+  p <- p +
+    scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+    scale_color_manual(
+      values = c("All companies" = "grey50", "Constant reporters" = "#485DA5"),
+      name = NULL
+    ) +
+    scale_linetype_manual(
+      values = c("All companies" = "dashed", "Constant reporters" = "solid"),
+      name = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, hjust = 0.5),
+      panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+      panel.grid.minor.y = element_blank(),
+      axis.ticks = element_line(color = "grey"),
+      axis.ticks.length = unit(0.15, "cm"),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    labs(
+      title = stringr::str_wrap(indicator, width = 45),
+      x = "",
+      y = parse(text = "")
+    )
+
+  label_grob <- grid::textGrob(
+    label = parse(text = label_n),
+    x = unit(0.98, "npc"),
+    y = unit(0.95, "npc"),
+    just = c("right", "bottom"),
+    gp = grid::gpar(fontsize = 14)
+  )
+
+  p <- p + annotation_custom(label_grob)
+
+  ggsave(
+    filename = here("fig", paste0("fig-gov-constant-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+    plot = p,
+    width = 5, height = 5, dpi = 400, units = "in", device = "png"
+  )
+
+  p
+}
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- patchwork::wrap_plots(plots) +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 20),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.justification = "center",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16)
+  )
+
+ggsave(
+  here("fig", "fig-gov-impacts-constant-reporters.pdf"),
+  pfinal,
+  width = 16, height = 6, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here("fig/fig-gov-impacts-constant-reporters.pdf"))
+
+```
+
+### Transparency high-quality vs. all
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+
+library(jsonlite) # TEMP: append to analyes-qmd and requirements.txt
+
+std_levels <- c(
+    "Climate change",
+    "Pollution",
+    "Water",
+    "Biodiversity",
+    "Circular economy",
+    "Own workforce",
+    "Consumers",
+    "Governance",
+    "Business conduct"
+)
+
+colors <- c(
+    "Climate change"   = "#1C4A29",
+    "Pollution"        = "#2E6F40",
+    "Water"            = "#419759",
+    "Biodiversity"     = "#55C173",
+    "Circular economy" = "#6AEC8E",
+    "Own workforce"    = "#6F2E5D",
+    "Consumers"        = "#D661B5",
+    "Governance"       = "#485DA5",
+    "Business conduct" = "#6D81CD"
+)
+
+df <- df |> mutate(standard_topic = ifelse(standard_topic == "General", "Governance", standard_topic))
+
+# load list of high-quality company-years
+hq_json <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/top_quality_documents_yearly.json")
+) # TEMP: decide on storage location 
+
+hq_keys <- hq_json$top_quality_documents_yearly
+
+# helper: compute "avg # ESG indicators reported" per year and ESRS topic
+calc_transparency_bars <- function(data) {
+  data |>
+    dplyr::mutate(std = factor(standard_topic, levels = std_levels)) |>
+    dplyr::group_by(firm, year, std) |>
+    dplyr::summarise(count_reported = sum(exists), .groups = "drop") |>
+    dplyr::group_by(year, std) |>
+    dplyr::summarise(avg_reported = mean(count_reported), .groups = "drop")
+}
+
+# ensure company_year exists once
+if (!("company_year" %in% names(df))) {
+  df <- df |>
+    dplyr::mutate(company_year = paste0(firm, "_", year))
+}
+
+# Panel a - all companies
+p_all <- df |>
+  calc_transparency_bars() |>
+  ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = "# ESG indicators", fill = "ESRS Topic") +
+  ggtitle("All companies") +
+  theme(
+    plot.title = element_text(size = 13),
+    text = element_text(size = 11),
+    axis.line = element_line(linewidth = 0.5),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.ticks = element_line(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+# Panel b - high-quality company-years
+p_hq <- df |>
+  dplyr::filter(company_year %in% hq_keys) |>
+  calc_transparency_bars() |>
+  ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = NULL, fill = "ESRS Topic") +
+  ggtitle("High quality firm-years") +
+  theme(
+    plot.title = element_text(size = 13),
+    text = element_text(size = 11),
+    axis.text.x = element_text(),
+    axis.ticks.x = element_line(),
+    axis.line.x = element_line(size = 0.3),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+pfinal_hq_transp <- (p_all | p_hq) +
+  patchwork::plot_layout(guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold"),
+    legend.position = "right",
+    legend.direction = "vertical"
+  )
+
+ggsave(
+  here("fig", "fig-transparency_trend_high_quality.pdf"),
+  pfinal_hq_transp,
+  width = 10, height = 4, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-transparency_trend_high_quality.pdf"))
+
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 6
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+shapes_line <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 22,
+    "Biodiversity"     = 4,
+    "Circular economy" = 23,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+
+shapes_scatter <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 0,
+    "Biodiversity"     = 4,
+    "Circular economy" = 5,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+
+temp <- temp |> mutate(standard_topic = ifelse(standard_topic == "General", "Governance", standard_topic))
+
+# load list of high-quality company-years
+hq_json <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/top_quality_documents_yearly.json")
+) # TEMP: decide on storage location for file
+hq_keys <- hq_json$top_quality_documents_yearly
+
+# ensure company_year exists (base-pipe friendly)
+if (!("company_year" %in% names(temp))) {
+  temp <- temp |>
+    dplyr::mutate(company_year = paste0(firm, "_", year))
+}
+
+# filter to HQ firm-years
+df_hq <- temp |>
+  dplyr::filter(company_year %in% hq_keys)
+
+# add aggregate benchmark transparency to time series plot (p2) - HQ ONLY
+overall_p2_hq <-
+  df_hq |>
+  dplyr::group_by(firm, year) |>
+  dplyr::summarize(transp = mean(exists), .groups = "drop") |>
+  dplyr::group_by(year) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::mutate(
+    label = "Overall",
+    group = "Overall"
+  )
+
+# rebuild p2 - HQ ONLY
+p2_hq <-
+  df_hq |>
+  dplyr::group_by(firm, year, topic, standard, standard_topic) |>
+  dplyr::summarize(transp = mean(exists), .groups = "drop") |>
+  dplyr::group_by(year, topic, standard, standard_topic) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::mutate(
+    label = paste0(standard_topic),
+    group = ifelse(topic == "env", "Environmental", "Social and Governance")
+  ) |>
+  dplyr::bind_rows(overall_p2_hq) |>
+  dplyr::mutate(
+    label = factor(label, levels = c("Overall", std_levels))
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(
+    x = factor(year),
+    y = transp,
+    color = label,
+    shape = label,
+    group = label
+  )) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point(size = 2, fill = "white", stroke = 1) +
+  ggplot2::scale_y_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+  ggplot2::scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+  ggplot2::scale_shape_manual(values = c("Overall" = 16, shapes_line)) +
+  ggplot2::labs(x = NULL, y = "Transparency score", color = "ESRS Topic", shape = "ESRS Topic") +
+  ggplot2::theme(
+    text = ggplot2::element_text(color = "black", size = 10),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.border = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    axis.line = ggplot2::element_line(color = "black"),
+    axis.ticks = ggplot2::element_line(color = "black"),
+    legend.key.height = grid::unit(10, "pt"),
+    legend.position = "left",
+    legend.box.margin = ggplot2::margin(r = -120),
+    axis.title.y = ggplot2::element_text(vjust = -55)
+  )
+
+# add aggregate benchmark to sectoral scatter plot (p3) - HQ ONLY
+overall_p3_hq <-
+  df_hq |>
+  dplyr::group_by(firm, year) |>
+  dplyr::summarize(transp = mean(exists), .groups = "drop") |>
+  add_all_firm_data() |>
+  dplyr::group_by(primary_sics_sector) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::filter(!is.na(primary_sics_sector)) |>
+  dplyr::mutate(std = "Overall")
+
+sector_order_hq <- overall_p3_hq |>
+  dplyr::arrange(transp) |>
+  dplyr::pull(primary_sics_sector)
+
+# rebuild p3 - HQ ONLY
+p3_hq <-
+  df_hq |>
+  dplyr::mutate(std = paste0(standard_topic)) |>
+  dplyr::group_by(firm, year, topic, std, standard) |>
+  dplyr::summarize(transp = mean(exists), .groups = "drop") |>
+  add_all_firm_data() |>
+  dplyr::group_by(primary_sics_sector, topic, std, standard) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::filter(!is.na(primary_sics_sector)) |>
+  dplyr::bind_rows(overall_p3_hq) |>
+  dplyr::mutate(
+    primary_sics_sector = factor(primary_sics_sector, levels = sector_order_hq),
+    std = factor(std, levels = c("Overall", std_levels))
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(
+    x = transp,
+    y = primary_sics_sector,
+    color = std,
+    shape = std
+  )) +
+  ggplot2::geom_point(size = 2, stroke = 1) +
+  ggplot2::scale_x_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+  ggplot2::scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+  ggplot2::scale_shape_manual(values = c("Overall" = 16, shapes_scatter)) +
+  ggplot2::labs(x = "Transparency score", y = "", shape = "ESRS Topic", color = "ESRS Topic") +
+  ggplot2::theme(
+    text = ggplot2::element_text(color = "black", size = 10),
+    panel.border = ggplot2::element_blank(),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    axis.line = ggplot2::element_line(color = "black"),
+    axis.ticks = ggplot2::element_line(color = "black"),
+    legend.position = "none"
+  )
+
+# combine + export - HQ ONLY
+p3_hq <- p3_hq + ggplot2::guides(color = "none", shape = "none")
+
+pfinal_hq <- p2_hq / p3_hq +
+  patchwork::plot_layout(
+    heights = c(1, 1.4),
+    guides = "collect"
+  ) +
+  patchwork::plot_annotation(tag_levels = "a") &
+  ggplot2::theme(
+    plot.tag = ggplot2::element_text(face = "bold"),
+    plot.caption = ggtext::element_textbox_simple(hjust = 0),
+    plot.caption.position = "plot",
+    legend.position = "right",
+    legend.justification = "center"
+  )
+
+ggsave(
+  here("fig", "fig-transparency_high_quality.pdf"),
+  pfinal_hq,
+  width = 8, height = 6, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-transparency_high_quality.pdf"))
+
+```
+```{r}
+#| fig-width: 9.5
+#| fig-height: 5
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+# Updated violin plot with top vs bottom 10% (vs middle 80%) - HIGH QUALITY firm-years only
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+
+    # load list of high-quality company-years
+    hq_json <- jsonlite::fromJSON(
+        here::here("data/raw/datasets/top_quality_documents_yearly.json")
+    ) # TEMP: decide on storage location for file
+    hq_keys <- hq_json$top_quality_documents_yearly
+
+    # ensure company_year exists in df (base-pipe friendly)
+    if (!("company_year" %in% names(df))) {
+        df <- df |>
+            dplyr::mutate(company_year = paste0(firm, "_", year))
+    }
+
+    esg_rating_map <- c(
+        "A+" = 12, "A" = 11, "A-" = 10,
+        "B+" = 9,  "B" = 8,  "B-" = 7,
+        "C+" = 6,  "C" = 5,  "C-" = 4,
+        "D+" = 3,  "D" = 2,  "D-" = 1
+    )
+
+    # reverse-coded
+    controversy_score_map <- c(
+        "A+" = 1, "A" = 2, "A-" = 3,
+        "B+" = 4, "B" = 5, "B-" = 6,
+        "C+" = 7, "C" = 8, "C-" = 9,
+        "D+" = 10, "D" = 11, "D-" = 12
+    )
+
+    msci_company_rating_map <- c(
+        "AAA" = 7, "AA" = 6, "A" = 5,
+        "BBB" = 4, "BB" = 3, "B" = 2,
+        "CCC" = 1
+    )
+
+    # Base summarization and firm data enrichment (HQ only)
+    df2_enriched <- df |>
+        dplyr::filter(company_year %in% hq_keys) |>
+        dplyr::group_by(firm, year) |>
+        dplyr::summarize(transp = mean(exists), .groups = "drop") |>
+        add_all_firm_data()
+
+    # Continue transformation
+    df2 <- df2_enriched |>
+        dplyr::select(
+            firm, year, primary_sics_sector, transp,
+            mkcapUSD_lagged, salesUSD,
+            ref_esg_score, ref_esg_controversies_score_lagged,
+            msci_company_rating_lagged
+        ) |>
+        dplyr::mutate(
+            ref_esg_score_n = dplyr::recode(ref_esg_score, !!!esg_rating_map),
+            ref_esg_controversies_score_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map),
+            msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map)
+        )
+
+    make_grouped_df <- function(df, quant_col) {
+        df_grouped <- df |>
+            # Compute quantile thresholds yearly
+            dplyr::group_by(year) |>
+            dplyr::mutate(
+                q10 = stats::quantile(.data[[quant_col]], 0.1, na.rm = TRUE),
+                q90 = stats::quantile(.data[[quant_col]], 0.9, na.rm = TRUE),
+                group = dplyr::case_when(
+                    .data[[quant_col]] >= q90 ~ "Top 10%",
+                    .data[[quant_col]] <= q10 ~ "Bottom 10%",
+                    TRUE ~ "Middle 80%"
+                )
+            ) |>
+            dplyr::ungroup() |>
+            dplyr::select(-q10, -q90)
+
+        return(df_grouped)
+    }
+
+    df_mkcap_plot <- make_grouped_df(df2, "mkcapUSD_lagged")
+    # df_sales_plot <- make_grouped_df(df2, "salesUSD")
+    # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
+    df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
+    df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
+
+    # Function  to compare means
+    compare_means <- function(df, group_var = "group", target_group = "Top 10%", reference_group = "Middle 80%") {
+        variable_sym <- rlang::sym(group_var)
+
+        x <- df |>
+            dplyr::filter((!!variable_sym) == target_group) |>
+            dplyr::pull(transp) |>
+            stats::na.omit()
+        y <- df |>
+            dplyr::filter((!!variable_sym) == reference_group) |>
+            dplyr::pull(transp) |>
+            stats::na.omit()
+
+        ttest <- stats::t.test(x = x, y = y, alternative = "two.sided")
+
+        stars <- dplyr::case_when(
+            ttest$p.value < 0.001 ~ "***",
+            ttest$p.value < 0.01 ~ "**",
+            ttest$p.value < 0.05 ~ "*",
+            TRUE ~ ""
+        )
+
+        sprintf("diff = %.1f p.p.%s", abs(ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
+    }
+
+    # Function to plot violins
+    make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
+        df <- df |> tidyr::drop_na(transp)
+
+        ggplot2::ggplot(df, ggplot2::aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
+            ggplot2::geom_violin(ggplot2::aes(fill = group), alpha = 0.5) +
+            ggplot2::geom_boxplot(width = 0.1, outlier.shape = NA) +
+            ggplot2::scale_fill_manual(values = blue_shades) +
+            ggplot2::scale_y_continuous(labels = scales::percent, limits = c(0, 0.75), expand = c(0, 0)) +
+            ggplot2::labs(x = x_label, y = "Transparency score") +
+            ggplot2::theme_minimal(base_size = 10) +
+            ggplot2::theme(
+                panel.grid.major = ggplot2::element_blank(),
+                panel.border = ggplot2::element_blank(),
+                axis.line = ggplot2::element_line(linewidth = 0.25),
+                axis.ticks = ggplot2::element_line(linewidth = 0.25),
+                legend.position = "none",
+                axis.text.y = if (x_label == "Market capitalization") ggplot2::element_text() else ggplot2::element_blank(),
+                axis.title.y = if (x_label == "Market capitalization") ggplot2::element_text() else ggplot2::element_blank()
+            ) +
+            ggpubr::geom_bracket(
+                xmin = c("Bottom 10%", "Top 10%"),
+                xmax = c("Middle 80%", "Middle 80%"),
+                y.position = bracket_y,
+                label = c(
+                    compare_means(df, "group", "Bottom 10%", "Middle 80%"),
+                    compare_means(df, "group", "Top 10%", "Middle 80%")
+                )
+            )
+    }
+
+    blue_shades <- c(
+        "Bottom 10%" = "#bdd7e7",
+        "Middle 80%" = "#6baed6",
+        "Top 10%" = "#2171b5"
+    )
+
+    violin_mkcap <- make_violin_plot(df_mkcap_plot, "Market capitalization")
+    # violin_sales <- make_violin_plot(df_sales_plot, "Revenue")
+    # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
+    violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
+    violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
+
+    p <- violin_mkcap + violin_msci_rating + violin_controversies +
+        patchwork::plot_layout(ncol = 3) +
+        patchwork::plot_annotation(tag_levels = "a") &
+        ggplot2::theme(
+            plot.tag = ggplot2::element_text(face = "bold"),
+            plot.caption = ggtext::element_textbox_simple(hjust = 0),
+            plot.caption.position = "plot"
+        )
+
+    p
+    
+    ggplot2::ggsave(
+        here::here("fig", "fig-heterogeneity-companies-high-quality.pdf"),
+        p,
+        width = 9.5, height = 5, dpi = 300, units = "in", device = "pdf"
+    )
+    
+    knitr::include_graphics(here::here("fig/fig-heterogeneity-companies-high-quality.pdf"))
+}
+
+```
+
+### Environmental performance high-quality vs. all
+
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+# load list of high-quality company-years
+hq_json <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/top_quality_documents_yearly.json")
+) # TEMP: decide on location of storage for list
+
+hq_keys <- hq_json$top_quality_documents_yearly
+
+selected_indicators <- c(
+  "Total scope 1 emissions [tCO₂eq]",
+  "Total scope 2 emissions (market-based) [tCO₂eq]",
+  "Total scope 3 emissions [tCO₂eq]",
+  "Category 6 Travel [tCO₂eq]",
+  "Energy consumption [MWh]",
+  "Renewable sources in total energy consumption [%]",
+  "Water consumption [m³]",
+  "Total waste generated [t]",
+  "Non-recycled waste [%]"
+)
+
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+# base data (ALL) + flag high-quality company-years
+temp_flagged <- temp |>
+  dplyr::select(company_year, firm, year, topic, label_specification, value_final) |>
+  dplyr::mutate(
+    label_specification = dplyr::recode(label_specification, !!!renamer_env),
+    label_specification = factor(label_specification, levels = unname(renamer_env)),
+    is_high_quality = company_year %in% hq_keys
+  ) |>
+  dplyr::filter(topic == "env", label_specification %in% selected_indicators) |>
+  tidyr::drop_na(value_final)
+
+# grouping info for HQ only
+grouping_info <- temp_flagged |>
+  dplyr::filter(is_high_quality == TRUE) |>
+  dplyr::group_by(label_specification, year) |>
+  dplyr::summarise(n = dplyr::n(), .groups = "drop") |>
+  dplyr::mutate(
+    n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+    n_group = factor(n_group, levels = n_labels)
+  )
+
+# summaries for ALL
+p_all <- temp_flagged |>
+  dplyr::group_by(label_specification, year) |>
+  dplyr::summarise(
+    p10 = pmax(stats::quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1  = stats::quantile(value_final, 0.25, na.rm = TRUE),
+    median = stats::quantile(value_final, 0.50, na.rm = TRUE),
+    q3  = stats::quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = stats::quantile(value_final, 0.90, na.rm = TRUE),
+    group = "All companies",
+    .groups = "drop"
+  )
+
+# summaries for HIGH QUALITY company-years
+p_hq <- temp_flagged |>
+  dplyr::filter(is_high_quality == TRUE) |>
+  dplyr::group_by(label_specification, year) |>
+  dplyr::mutate(
+    lower_bound = stats::quantile(value_final, 0.00, na.rm = TRUE),
+    upper_bound = stats::quantile(value_final, 0.99, na.rm = TRUE),
+    value_final = pmin(pmax(value_final, lower_bound), upper_bound)
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::group_by(label_specification, year) |>
+  dplyr::summarise(
+    p10 = pmax(stats::quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1  = stats::quantile(value_final, 0.25, na.rm = TRUE),
+    median = stats::quantile(value_final, 0.50, na.rm = TRUE),
+    q3  = stats::quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = stats::quantile(value_final, 0.90, na.rm = TRUE),
+    group = "High quality firm-years",
+    .groups = "drop"
+  )
+
+p_env <- dplyr::bind_rows(p_all, p_hq) |>
+  dplyr::left_join(grouping_info, by = c("label_specification", "year")) |>
+  dplyr::mutate(
+    n_group = factor(n_group, levels = n_labels),
+    group = factor(group, levels = c("All companies", "High quality firm-years"))
+  )
+
+# n label (HQ counts)
+n_values <- temp_flagged |>
+  dplyr::filter(is_high_quality == TRUE) |>
+  dplyr::group_by(label_specification) |>
+  dplyr::summarise(n = dplyr::n(), .groups = "drop")
+
+# emissions share y-limit
+emission_indicators <- c(
+  "Total scope 1 emissions [tCO₂eq]",
+  "Total scope 2 emissions (market-based) [tCO₂eq]",
+  "Total scope 3 emissions [tCO₂eq]",
+  "Category 6 Travel [tCO₂eq]"
+)
+
+shared_emission_max <- p_env |>
+  dplyr::filter(label_specification %in% emission_indicators) |>
+  dplyr::summarise(ymax = max(p90, q3, na.rm = TRUE)) |>
+  dplyr::pull(ymax) * 1.1
+
+plotting <- function(indicator) {
+
+  indicator_title <- switch(indicator,
+    "Total scope 1 emissions [tCO₂eq]" = expression(Total~scope~1~emissions~"[tCO"[2]*"eq]"),
+    "Total scope 2 emissions (market-based) [tCO₂eq]" = expression(Total~scope~2~emissions~"[tCO"[2]*"eq]"),
+    "Total scope 3 emissions [tCO₂eq]" = expression(Total~Scope~3~emissions~"[tCO"[2]*"eq]"),
+    "Category 6 Travel [tCO₂eq]" = expression(Scope~3~emissions~(Travel)~"[tCO"[2]*"eq]"),
+    "Energy consumption [MWh]" = expression(Energy~consumption~"[MWh]"),
+    "Renewable sources in total energy consumption [%]" = expression(atop("Renewable sources in total","energy consumption [%]")),
+    "Water consumption [m³]" = expression(Water~consumption~"[m"^3*"]"),
+    "Total waste generated [t]" = expression(Total~waste~generated~"[t]"),
+    "Non-recycled waste [%]" = expression("Non-recycled waste [%]"),
+    expression(.(indicator))
+  )
+
+  data_filtered <- p_env |>
+    dplyr::filter(label_specification == indicator) |>
+    dplyr::mutate(n_group = factor(n_group, levels = n_labels)) |>
+    tidyr::complete(
+      year,
+      label_specification,
+      group = c("All companies", "High quality firm-years"),
+      n_group = factor(n_labels, levels = n_labels)
+    )
+
+  n_label <- n_values |>
+    dplyr::filter(label_specification == indicator) |>
+    dplyr::pull(n)
+  if (length(n_label) == 0 || is.na(n_label)) n_label <- 0
+  label_n <- sprintf("italic(n)==%s", n_label)
+
+  y_max <- if (indicator %in% emission_indicators) {
+    shared_emission_max
+  } else {
+    max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+  }
+
+  p <- ggplot2::ggplot(data_filtered, ggplot2::aes(x = year))
+
+  if (indicator == "Category 6 Travel [tCO₂eq]") {
+    p <- p +
+      ggplot2::geom_rect(
+        data = tibble::tibble(xmin = 2020, xmax = 2023, ymin = 1, ymax = 12000000),
+        ggplot2::aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+        fill = "grey85", alpha = 0.3, inherit.aes = FALSE
+      ) +
+      ggplot2::annotate(
+        "text",
+        x = 2020.3, y = 500000,
+        label = "COVID-19\npandemic",
+        hjust = 0, size = 4, color = "grey30"
+      )
+  }
+
+  p <- p +
+    ggplot2::geom_line(
+      data = dplyr::filter(data_filtered, !is.na(median)),
+      ggplot2::aes(y = median, color = group, linetype = group),
+      linewidth = 1
+    )
+
+  if (indicator %in% c("Renewable sources in total energy consumption [%]",
+                       "Non-recycled waste [%]")) {
+    p <- p +
+      ggplot2::scale_y_continuous(
+        limits = c(min(data_filtered$p10, na.rm = TRUE) * 0.9,
+                   max(data_filtered$p90, na.rm = TRUE) * 1.1),
+        labels = scales::comma_format()
+      )
+  } else {
+    p <- p +
+      ggplot2::scale_y_continuous(
+        trans = "log10",
+        labels = scales::comma_format(),
+        limits = c(1, y_max),
+        oob = scales::oob_keep
+      )
+  }
+
+  p <- p +
+    ggplot2::scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+    ggplot2::scale_color_manual(
+      values = c("All companies" = "grey50", "High quality firm-years" = "#2E6F40"),
+      name = NULL
+    ) +
+    ggplot2::scale_linetype_manual(
+      values = c("All companies" = "dashed", "High quality firm-years" = "solid"),
+      name = NULL
+    ) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5),
+      panel.border = ggplot2::element_rect(color = "grey", fill = NA, linewidth = 0.8),
+      panel.grid.major.x = ggplot2::element_blank(),
+      panel.grid.minor.x = ggplot2::element_blank(),
+      panel.grid.major.y = ggplot2::element_line(linetype = "dotted", color = "gray60"),
+      panel.grid.minor.y = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_line(color = "grey"),
+      axis.ticks.length = grid::unit(0.15, "cm"),
+      axis.text.x = ggplot2::element_text(size = 16),
+      axis.text.y = ggplot2::element_text(size = 16)
+    ) +
+    ggplot2::labs(
+      title = bquote(.(indicator_title)),
+      x = "",
+      y = parse(text = "")
+    )
+
+  label_grob <- grid::textGrob(
+    label = parse(text = label_n),
+    x = grid::unit(0.98, "npc"),
+    y = grid::unit(0.95, "npc"),
+    just = c("right", "bottom"),
+    gp = grid::gpar(fontsize = 14)
+  )
+
+  p <- p + ggplot2::annotation_custom(label_grob)
+
+  ggplot2::ggsave(
+    filename = here::here("fig", paste0("fig-hq-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+    plot = p,
+    width = 5, height = 5, dpi = 400, units = "in", device = "png"
+  )
+
+  p
+}
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- patchwork::wrap_plots(plots) +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  ggplot2::theme(
+    plot.tag = ggplot2::element_text(face = "bold", size = 20),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.justification = "center",
+    legend.title = ggplot2::element_text(size = 16, face = "bold"),
+    legend.text = ggplot2::element_text(size = 16)
+  )
+
+ggplot2::ggsave(
+  here::here("fig", "fig-env-impacts-high-quality-firmyears.pdf"),
+  pfinal,
+  width = 16, height = 15, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here::here("fig/fig-env-impacts-high-quality-firmyears.pdf"))
+
+```
+
+### Social performance high-quality vs. all
+```{r}
+#| fig-width: 15
+#| fig-height: 16
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+# load list of high-quality company-years
+hq_json <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/top_quality_documents_yearly.json")
+) # TEMP: decide on location of storage for list
+
+hq_keys <- hq_json$top_quality_documents_yearly
+
+selected_indicators <- c(
+  "Employee turnover [%]",
+  "Employees covered by collective bargaining agreements [%]",
+  "# Training hours per employee",
+  "# Days lost to work-related injuries, ill health, and fatalities among employees",
+  "Female employees in top managment [%]",
+  "Gender pay gap [%]",
+  "Annual remuneration ratio [%]",
+  "# Complaints filed by own workforce",
+  "Amount of fines, penalties, and compensation for damages as result of incidents and complaints [USD]"
+)
+
+# bins
+n_breaks  <- c(0, 150, 300, Inf)
+n_labels  <- c("≤150", "≤300", ">300")
+
+# prepare base data + rename labels
+temp_flagged <- temp |>
+  select(company_year, firm, year, topic, id, label_specification, value_final) |>
+  mutate(
+    label_specification = recode(label_specification, !!!renamer_soc),
+    label_specification = factor(label_specification, levels = unname(renamer_soc)),
+    is_high_quality = company_year %in% hq_keys
+  ) |>
+  filter(topic == "soc", label_specification %in% selected_indicators) |>
+  drop_na(value_final)
+
+# grouping info
+grouping_info <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification, year) |>
+  summarise(n = n(), .groups = "drop") |>
+  mutate(
+    n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+    n_group = factor(n_group, levels = n_labels)
+  )
+
+p10_fun <- function(x, label) {
+  if (label != "Gender pay gap [%]") pmax(stats::quantile(x, 0.10, na.rm = TRUE), 1)
+  else stats::quantile(x, 0.10, na.rm = TRUE)
+}
+
+# summaries for ALL
+p_all <- temp_flagged |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10    = p10_fun(value_final, dplyr::first(label_specification)),
+    q1     = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3     = quantile(value_final, 0.75, na.rm = TRUE),
+    p90    = quantile(value_final, 0.90, na.rm = TRUE),
+    group  = "All companies",
+    .groups = "drop"
+  )
+
+# summaries for HIGH QUALITY company-years only
+p_hq <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification, year) |>
+  mutate(
+    lower_bound = quantile(value_final, 0.00, na.rm = TRUE),
+    upper_bound = quantile(value_final, 0.99, na.rm = TRUE),
+    value_final = pmin(pmax(value_final, lower_bound), upper_bound)
+  ) |>
+  ungroup() |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10    = p10_fun(value_final, dplyr::first(label_specification)),
+    q1     = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3     = quantile(value_final, 0.75, na.rm = TRUE),
+    p90    = quantile(value_final, 0.90, na.rm = TRUE),
+    group  = "High quality firm-years",
+    .groups = "drop"
+  )
+
+p_soc <- bind_rows(p_all, p_hq) |>
+  left_join(grouping_info, by = c("label_specification", "year")) |>
+  mutate(
+    n_group = factor(n_group, levels = n_labels),
+    group   = factor(group, levels = c("All companies", "High quality firm-years"))
+  )
+
+# n label (counts for high-quality firm-years)
+n_values <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification) |>
+  summarise(n = n(), .groups = "drop")
+
+# indicators that should stay on linear scale
+linear_indicators <- c(
+  "Employee turnover [%]",
+  "Employees covered by collective bargaining agreements [%]",
+  "Female employees in top managment [%]",
+  "Gender pay gap [%]",
+  "Annual remuneration ratio [%]"
+)
+
+plotting <- function(indicator) {
+
+  data_filtered <- p_soc |>
+    filter(label_specification == indicator) |>
+    mutate(n_group = factor(n_group, levels = n_labels)) |>
+    tidyr::complete(
+      year,
+      label_specification,
+      group = c("All companies", "High quality firm-years"),
+      n_group = factor(n_labels, levels = n_labels)
+    )
+
+  n_label <- n_values |>
+    filter(label_specification == indicator) |>
+    pull(n)
+  if (length(n_label) == 0 || is.na(n_label)) n_label <- 0
+
+  label_n <- paste0("italic(n)==", n_label)
+
+  # y max (only used for log-scale)
+  y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+  p <- ggplot(data_filtered, aes(x = year)) +
+    geom_line(
+      data = dplyr::filter(data_filtered, !is.na(median)),
+      aes(y = median, color = group, linetype = group),
+      linewidth = 1
+    )
+
+  if (indicator %in% linear_indicators) {
+    p <- p +
+      scale_y_continuous(
+        limits = c(
+          min(data_filtered$p10, na.rm = TRUE) * 0.9,
+          max(data_filtered$p90, na.rm = TRUE) * 1.1
+        ),
+        labels = scales::comma_format()
+      )
+  } else {
+    p <- p +
+      scale_y_continuous(
+        trans = "log10",
+        labels = scales::comma_format(),
+        limits = c(1, y_max),
+        oob = scales::oob_keep
+      )
+  }
+
+  p <- p +
+    scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+    scale_color_manual(
+      values = c("All companies" = "grey50", "High quality firm-years" = "#6F2E5D"),
+      name = NULL
+    ) +
+    scale_linetype_manual(
+      values = c("All companies" = "dashed", "High quality firm-years" = "solid"),
+      name = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, hjust = 0.5),
+      panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+      panel.grid.minor.y = element_blank(),
+      axis.ticks = element_line(color = "grey"),
+      axis.ticks.length = unit(0.15, "cm"),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    labs(
+      title = stringr::str_wrap(indicator, width = 45),
+      x = "",
+      y = parse(text = "")
+    )
+
+  label_grob <- grid::textGrob(
+    label = parse(text = label_n),
+    x = unit(0.98, "npc"),
+    y = unit(0.95, "npc"),
+    just = c("right", "bottom"),
+    gp = grid::gpar(fontsize = 14)
+  )
+
+  p <- p + annotation_custom(label_grob)
+
+  ggsave(
+    filename = here("fig", paste0("fig-soc-hq-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+    plot = p,
+    width = 5, height = 5, dpi = 400, units = "in", device = "png"
+  )
+
+  p
+}
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- patchwork::wrap_plots(plots) +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 20),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.justification = "center",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16)
+  )
+
+ggsave(
+  here("fig", "fig-soc-impacts-high-quality-firmyears.pdf"),
+  pfinal,
+  width = 16, height = 17, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here("fig/fig-soc-impacts-high-quality-firmyears.pdf"))
+
+```
+
+### Governance performance high-quality vs. all
+```{r}
+#| fig-width: 15
+#| fig-height: 5.5
+
+library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
+
+# load list of high-quality company-years
+hq_json <- jsonlite::fromJSON(
+  here::here("data/raw/datasets/top_quality_documents_yearly.json")
+) # TEMP: decide on location of storage for list
+
+hq_keys <- hq_json$top_quality_documents_yearly
+
+selected_indicators <- c(
+  "Independent board members [%]",
+  "Lobbying expenses [USD]",
+  "# Days to pay invoice"
+)
+
+# define bins
+n_breaks <- c(0, 150, 300, Inf)
+n_labels <- c("≤150", "≤300", ">300")
+
+# prepare base data + rename labels
+temp_flagged <- temp |>
+  select(company_year, firm, year, topic, id, label_specification, value_final) |>
+  mutate(
+    label_specification = recode(label_specification, !!!renamer_gov),
+    label_specification = factor(label_specification, levels = unname(renamer_gov)),
+    is_high_quality = company_year %in% hq_keys
+  ) |>
+  filter(topic == "gov", label_specification %in% selected_indicators) |>
+  drop_na(value_final)
+
+# grouping info for high-quality company-years
+grouping_info <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification, year) |>
+  summarise(n = n(), .groups = "drop") |>
+  mutate(
+    n_group = cut(n, breaks = n_breaks, labels = n_labels, right = TRUE),
+    n_group = factor(n_group, levels = n_labels)
+  )
+
+# summaries: ALL companies
+p_all <- temp_flagged |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10 = pmax(quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1 = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3 = quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = quantile(value_final, 0.90, na.rm = TRUE),
+    group = "All companies",
+    .groups = "drop"
+  )
+
+# summaries: HIGH QUALITY company-years
+p_hq <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification, year) |>
+  mutate(
+    lower_bound = quantile(value_final, 0.00, na.rm = TRUE),
+    upper_bound = quantile(value_final, 0.99, na.rm = TRUE),
+    value_final = pmin(pmax(value_final, lower_bound), upper_bound)
+  ) |>
+  ungroup() |>
+  group_by(label_specification, year) |>
+  summarise(
+    p10 = pmax(quantile(value_final, 0.10, na.rm = TRUE), 1),
+    q1 = quantile(value_final, 0.25, na.rm = TRUE),
+    median = quantile(value_final, 0.50, na.rm = TRUE),
+    q3 = quantile(value_final, 0.75, na.rm = TRUE),
+    p90 = quantile(value_final, 0.90, na.rm = TRUE),
+    group = "High quality firm-years",
+    .groups = "drop"
+  )
+
+p_gov <- bind_rows(p_all, p_hq) |>
+  left_join(grouping_info, by = c("label_specification", "year")) |>
+  mutate(
+    n_group = factor(n_group, levels = n_labels),
+    group = factor(group, levels = c("All companies", "High quality firm-years"))
+  )
+
+# n label (high-quality firm-years counts)
+n_values <- temp_flagged |>
+  filter(is_high_quality == TRUE) |>
+  group_by(label_specification) |>
+  summarise(n = n(), .groups = "drop")
+
+# indicators that should stay on linear scale
+linear_indicators <- c("Independent board members [%]")
+
+plotting <- function(indicator) {
+
+  data_filtered <- p_gov |>
+    filter(label_specification == indicator) |>
+    mutate(n_group = factor(n_group, levels = n_labels)) |>
+    tidyr::complete(
+      year,
+      label_specification,
+      group = c("All companies", "High quality firm-years"),
+      n_group = factor(n_labels, levels = n_labels)
+    )
+
+  n_label <- n_values |>
+    filter(label_specification == indicator) |>
+    pull(n)
+
+  # if no match, set to 0
+  if (length(n_label) == 0 || is.na(n_label)) n_label <- 0
+
+  label_n <- sprintf("italic(n)==%s", n_label)
+
+  y_max <- max(data_filtered$p90, data_filtered$q3, na.rm = TRUE) * 1.1
+
+  p <- ggplot(data_filtered, aes(x = year)) +
+    geom_line(
+      data = dplyr::filter(data_filtered, !is.na(median)),
+      aes(y = median, color = group, linetype = group),
+      linewidth = 1
+    )
+
+  if (indicator %in% linear_indicators) {
+    p <- p +
+      scale_y_continuous(
+        limits = c(
+          min(data_filtered$p10, na.rm = TRUE) * 0.9,
+          max(data_filtered$p90, na.rm = TRUE) * 1.1
+        ),
+        labels = scales::comma_format()
+      )
+  } else {
+    p <- p +
+      scale_y_continuous(
+        trans = "log10",
+        labels = scales::comma_format(),
+        limits = c(1, y_max),
+        oob = scales::oob_keep
+      )
+  }
+
+  p <- p +
+    scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+    scale_color_manual(
+      values = c("All companies" = "grey50", "High quality firm-years" = "#485DA5"),
+      name = NULL
+    ) +
+    scale_linetype_manual(
+      values = c("All companies" = "dashed", "High quality firm-years" = "solid"),
+      name = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, hjust = 0.5),
+      panel.border = element_rect(color = "grey", fill = NA, linewidth = 0.8),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_line(linetype = "dotted", color = "gray60"),
+      panel.grid.minor.y = element_blank(),
+      axis.ticks = element_line(color = "grey"),
+      axis.ticks.length = unit(0.15, "cm"),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    labs(
+      title = stringr::str_wrap(indicator, width = 45),
+      x = "",
+      y = parse(text = "")
+    )
+
+  label_grob <- grid::textGrob(
+    label = parse(text = label_n),
+    x = unit(0.98, "npc"),
+    y = unit(0.95, "npc"),
+    just = c("right", "bottom"),
+    gp = grid::gpar(fontsize = 14)
+  )
+
+  p <- p + annotation_custom(label_grob)
+
+  ggsave(
+    filename = here("fig", paste0("fig-gov-hq-", gsub("[^A-Za-z0-9]", "_", indicator), ".png")),
+    plot = p,
+    width = 5, height = 5, dpi = 400, units = "in", device = "png"
+  )
+
+  p
+}
+
+plots <- lapply(selected_indicators, plotting)
+
+pfinal <- patchwork::wrap_plots(plots) +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 20),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.justification = "center",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16)
+  )
+
+ggsave(
+  here("fig", "fig-gov-impacts-high-quality-firmyears.pdf"),
+  pfinal,
+  width = 16, height = 6, dpi = 400, units = "in", device = cairo_pdf
+)
+
+knitr::include_graphics(here("fig/fig-gov-impacts-high-quality-firmyears.pdf"))
+
+```
+
+`r if (file.exists(file.path(datasets_dir, "firm_data.csv"))) "### Transparency trends conditional on market capitalization"`
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+
+std_levels <- c(
+  "Climate change", "Pollution", "Water", "Biodiversity", "Circular economy",
+  "Own workforce", "Consumers", "Governance", "Business conduct"
+)
+
+colors <- c(
+  "Climate change"   = "#1C4A29",
+  "Pollution"        = "#2E6F40",
+  "Water"            = "#419759",
+  "Biodiversity"     = "#55C173",
+  "Circular economy" = "#6AEC8E",
+  "Own workforce"    = "#6F2E5D",
+  "Consumers"        = "#D661B5",
+  "Governance"       = "#485DA5",
+  "Business conduct" = "#6D81CD"
+)
+
+temp <- temp |>
+  mutate(standard_topic = ifelse(standard_topic == "General", "Governance", standard_topic))
+
+# create market-cap terciles within each year
+mkcap_groups_yearly <- temp |>
+  distinct(firm, year, mkcapUSD_lagged) |>
+  group_by(year) |>
+  filter(!is.na(mkcapUSD_lagged)) |>
+  mutate(
+    q33 = quantile(mkcapUSD_lagged, probs = 1/3, na.rm = TRUE),
+    q67 = quantile(mkcapUSD_lagged, probs = 2/3, na.rm = TRUE),
+    mkcap_group = case_when(
+      mkcapUSD_lagged <= q33 ~ "Market-cap tercile: bottom",
+      mkcapUSD_lagged >= q67 ~ "Market-cap tercile: top",
+      TRUE ~ "Market-cap tercile: middle"
+    )
+  ) |>
+  ungroup() |>
+  select(firm, year, mkcap_group) |>
+  distinct()
+
+# join group back to main data
+temp <- temp |>
+  left_join(mkcap_groups_yearly, by = c("firm", "year"))
+
+mkcap_levels <- c(
+  "Market-cap tercile: bottom",
+  "Market-cap tercile: middle",
+  "Market-cap tercile: top"
+)
+
+# --- build three panels (same logic as your rating panels) ---
+p_mkcap_small <- temp |>
+  filter(mkcap_group == mkcap_levels[1]) |>
+  mutate(std = factor(standard_topic, levels = std_levels)) |>
+  group_by(firm, year, std) |>
+  summarize(count_reported = sum(exists), .groups = "drop") |>
+  group_by(year, std) |>
+  summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+  ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = "# ESG indicators", fill = "ESRS Topic") +
+  ggtitle("Market-cap tercile: bottom") +
+  theme(
+    plot.title = element_text(size = 13),
+    text = element_text(size = 11),
+    axis.line = element_line(linewidth = 0.5),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.ticks = element_line(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+p_mkcap_mid <- temp |>
+  filter(mkcap_group == mkcap_levels[2]) |>
+  mutate(std = factor(standard_topic, levels = std_levels)) |>
+  group_by(firm, year, std) |>
+  summarize(count_reported = sum(exists), .groups = "drop") |>
+  group_by(year, std) |>
+  summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+  ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = NULL, fill = "ESRS Topic") +
+  ggtitle("Market-cap tercile: middle") +
+  theme(
+    plot.title = element_text(size = 13),
+    text = element_text(size = 11),
+    axis.text.x = element_text(),
+    axis.ticks.x = element_line(),
+    axis.line.x = element_line(linewidth = 0.3),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+p_mkcap_large <- temp |>
+  filter(mkcap_group == mkcap_levels[3]) |>
+  mutate(std = factor(standard_topic, levels = std_levels)) |>
+  group_by(firm, year, std) |>
+  summarize(count_reported = sum(exists), .groups = "drop") |>
+  group_by(year, std) |>
+  summarize(avg_reported = mean(count_reported), .groups = "drop") |>
+  ggplot(aes(x = factor(year), y = avg_reported, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = NULL, fill = "ESRS Topic") +
+  ggtitle("Market-cap tercile: top") +
+  theme(
+    plot.title = element_text(size = 13),
+    text = element_text(size = 11),
+    axis.text.x = element_text(),
+    axis.ticks.x = element_line(),
+    axis.line.x = element_line(linewidth = 0.3),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+pfinal_mkcap <- (p_mkcap_small | p_mkcap_mid | p_mkcap_large) +
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold"),
+    legend.position = "right",
+    legend.direction = "vertical"
+  )
+
+ggsave(
+  here::here("fig", "fig-transparency_mkcap_terciles.pdf"),
+  pfinal_mkcap,
+  width = 10, height = 4, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here::here("fig/fig-transparency_mkcap_terciles.pdf"))
+
+```
 
 `r if (file.exists(file.path(datasets_dir, "firm_data.csv"))) "### Environmental performance top vs bottom 10% - Market capitalization"`
 

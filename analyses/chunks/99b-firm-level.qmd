@@ -434,3 +434,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     )
 }
 ```
+
+```{r panel regression time trend}
+View(df2_enriched)
+```
+
