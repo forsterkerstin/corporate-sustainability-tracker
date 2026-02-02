@@ -271,167 +271,221 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             transp = mean(exists),
             .groups = "drop"
         ) |>
-        add_all_firm_data()
-
-    # Finalize all transformations
-    df2 <- df2_enriched |>
-        mutate(
-            sector = primary_sics_sector,
-            ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
-            ref_esg_contr_n = recode(ref_esg_controversies_score_lagged, !!!controversy_score_map),
-            msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map),
-            mkcapUSD_log = log(mkcapUSD_lagged)
-        ) |>
-        select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |>
-        pivot_longer(
-            cols = c(mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n)
-        ) |>
-        # Compute quantile thresholds yearly
-        group_by(name, year) |>
-        mutate(
-            q90 = value >= quantile(value, 0.9, na.rm = TRUE),
-            q10 = value <= quantile(value, 0.1, na.rm = TRUE)
-        ) |>
-        ungroup()
+        add_all_firm_data() |> 
+      mutate(
+        sector = primary_sics_sector,
+        ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
+        ref_esg_contr_n = recode(ref_esg_controversies_score_lagged, !!!controversy_score_map),
+        msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map),
+        mkcapUSD_log = log(mkcapUSD_lagged)
+      ) |> 
+      select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |> 
+      group_by(year) |> 
+      mutate(
+        # market cap dummies
+        q10_mkcap = mkcapUSD_log <= stats::quantile(mkcapUSD_log, 0.10, na.rm = TRUE),
+        q90_mkcap = mkcapUSD_log >= stats::quantile(mkcapUSD_log, 0.90, na.rm = TRUE),
+    
+        # rating dummies (note: your mapping defines higher number = better rating)
+        q10_rating = msci_company_rating_n <= stats::quantile(msci_company_rating_n, 0.10, na.rm = TRUE),
+        q90_rating = msci_company_rating_n >= stats::quantile(msci_company_rating_n, 0.90, na.rm = TRUE),
+    
+        # controversies dummies (your mapping is reverse-coded so higher number = worse controversies)
+        q10_contr = ref_esg_contr_n <= stats::quantile(ref_esg_contr_n, 0.10, na.rm = TRUE),
+        q90_contr = ref_esg_contr_n >= stats::quantile(ref_esg_contr_n, 0.90, na.rm = TRUE)
+      ) |> 
+      ungroup()
 }
 ```
 
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
-    # panel a
-    panel_a <-
-        modelsummary(
-            list(
-                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90),
-                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | year),
-                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector),
-                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
-                feols(data = df2 |> filter(name == "mkcapUSD_log"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
-            ),
-            stars = c("***" = .01, "**" = .05, "*" = 0.1),
-            coef_map = c(
-                "(Intercept)" = "Constant",
-                "q90TRUE" = "Top-10\\% market capitalization",
-                "q10TRUE" = "Bottom-10\\% market capitalization"
-            ),
-            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
-            output = "latex"
-        ) |>
-        as.character()
+  # helper function
+  make_panel_tex <- function(data, main, controls, stars, coef_map) {
 
-    # panel b
-    panel_b <-
-        modelsummary(
-            list(
-                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90),
-                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | year),
-                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector),
-                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
-                feols(data = df2 |> filter(name == "msci_company_rating_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
-            ),
-            stars = c("***" = .01, "**" = .05, "*" = 0.1),
-            coef_map = c(
-                "(Intercept)" = "Constant",
-                "q90TRUE" = "Top-10\\% ESG rating",
-                "q10TRUE" = "Bottom-10\\% ESG rating"
-            ),
-            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
-            output = "latex"
-        ) |>
-        as.character()
+  # choose focal dummy pair
+  main_terms <- switch(
+    main,
+    "mkcap"  = c("q10_mkcap",  "q90_mkcap"),
+    "rating" = c("q10_rating", "q90_rating"),
+    "contr"  = c("q10_contr",  "q90_contr")
+  )
 
-    # panel c
-    panel_c <-
-        modelsummary(
-            list(
-                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90),
-                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | year),
-                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector),
-                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year),
-                feols(data = df2 |> filter(name == "ref_esg_contr_n"), vcov = ~firm, transp ~ q10 + q90 | sector^year + firm)
-            ),
-            stars = c("***" = .001, "**" = .01, "*" = 0.05),
-            coef_map = c(
-                "(Intercept)" = "Constant",
-                "q90TRUE" = "Top-10\\% ESG controversies score",
-                "q10TRUE" = "Bottom-10\\% ESG controversies score"
-            ),
-            gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
-            output = "latex"
-        ) |>
-        as.character()
+  # build RHS: focal dummies + continuous controls
+  rhs <- paste(c(main_terms, controls), collapse = " + ")
 
-    # now, merge together
-    footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The independent variable is a dummy of whether a company is in the top-10\\% (or bottom-10\\%) of market capitalization, ESG rating, or ESG controversies scores, respectively. Panel~A reports results using market capitalization as the main independent variable. Panel~B uses Refinitiv's ESG rating, and panel~C uses the ESG controversies score from Refinitiv. The models vary by the set of included fixed effects (FE): Model~(1) includes no fixed effects; Model~(2) includes year fixed effects; Model~(3) includes sector fixed effects; Model~(4) includes year-by-sector fixed effects; and Model~(5) includes company fixed effects. Standard errors are clustered by company and included in parentheses. Significance levels: ***, **, and * indicate statistical significance at the 0.1\\%, 1\\%, and 5\\% level, respectively. Estimates are based on ordinary least squares (OLS) regression. We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For companies in the bottom-10\\% of ESG controversies, i.e., companies with less controversies around their ESG practices, we find lower levels of transparency, potentially indicating the disciplining effect of exteranal pressure."
+  f1 <- stats::as.formula(paste0("transp ~ ", rhs))
+  f2 <- stats::as.formula(paste0("transp ~ ", rhs, " | year"))
+  f3 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector"))
+  f4 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector^year"))
+  f5 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector^year + firm"))
 
+  models <- list(
+    fixest::feols(f1, data = data, vcov = ~firm),
+    fixest::feols(f2, data = data, vcov = ~firm),
+    fixest::feols(f3, data = data, vcov = ~firm),
+    fixest::feols(f4, data = data, vcov = ~firm),
+    fixest::feols(f5, data = data, vcov = ~firm)
+  )
 
-    ltx <- c(
-        "\\begin{table}[!htbp]",
-        "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
-        "\\caption{\\label{tab:regression-transp}Determinants of transparency.}",
-        "\\centering",
-        "\\begin{threeparttable}",
-        "",
-        # --- Panel a ---------------------------------
-        "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\",
-        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
-        "\\toprule",
-        unlist(strsplit(panel_a, "\n"))[12:18],
-        "\\midrule",
-        "Year FE          & No & Yes & No  & ---   & ---  \\\\",
-        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
-        "Year $\\times$ Sector FE & No & No  & No  & Yes & Yes \\\\",
-        "Company FE          & No & No  & No  & No  & Yes \\\\",
-        "\\midrule",
-        unlist(strsplit(panel_a, "\n"))[19:20],
-        "\\bottomrule",
-        "\\end{tabularx}", "", "\\vspace{1em}",
-        # --- Panel b ---------------------------------
-        "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\",
-        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
-        "\\toprule",
-        unlist(strsplit(panel_b, "\n"))[12:18],
-        "\\midrule",
-        "Year FE          & No & Yes & No  & ---   & ----   \\\\",
-        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
-        "Year $\\times$ Sector FE & No & No  & No  & Yes & Yes \\\\",
-        "Company FE          & No & No  & No  & No  & Yes \\\\",
-        "\\midrule",
-        unlist(strsplit(panel_b, "\n"))[19:20],
-        "\\bottomrule",
-        "\\end{tabularx}", "", "\\vspace{1em}",
-        # --- Panel c ---------------------------------
-        "\\multicolumn{6}{l}{\\textit{Panel C: Transparency by ESG rating controversies}} \\\\",
-        "\\begin{tabularx}{\\textwidth}{ p{5cm} ccccc }",
-        "\\toprule",
-        unlist(strsplit(panel_c, "\n"))[12:18],
-        "\\midrule",
-        "Year FE          & No & Yes & No  & ---   & ---   \\\\",
-        "Sector FE        & No & No  & Yes & ---   & ---   \\\\",
-        "Year x Sector FE & No & No  & No  & Yes & Yes \\\\",
-        "Company FE          & No & No  & No  & No  & Yes \\\\",
-        "\\midrule",
-        unlist(strsplit(panel_c, "\n"))[19:20],
-        "\\bottomrule",
-        "\\end{tabularx}", "", "\\vspace{1em}",
-        # --- Notes ---------------------------------
-        "\\begin{tablenotes}[para, flushleft]",
-        "\\scriptsize",
-        "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
-        "\\footnotetext",
-        sprintf("\\item \\textbf{Notes:} %s", footnote_text),
-        "\\end{tablenotes}",
-        "\\end{threeparttable}",
-        "\\end{table}"
+  # hide control coefficients
+  omit_regex <- paste0("^(", paste(controls, collapse = "|"), ")$")
+
+  modelsummary::modelsummary(
+    models,
+    stars = stars,
+    coef_map = coef_map,
+    coef_omit = omit_regex,
+    gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))",
+    output = "latex",
+    escape = FALSE
+  ) |>
+    as.character()
+  }
+
+  # Panel A: market cap dummies; controls are rating + controversies
+  panel_a_tex <- make_panel_tex(
+    data = df2_enriched,
+    main = "mkcap",
+    controls = c("msci_company_rating_n", "ref_esg_contr_n"),
+    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    coef_map = c(
+      "(Intercept)" = "Constant",
+      "q90_mkcapTRUE" = "Top-10\\% market capitalization",
+      "q10_mkcapTRUE" = "Bottom-10\\% market capitalization"
     )
-
-    ltx_final <- gsub("Num.Obs.", "$N$", ltx)
-    ltx_final <- gsub("R2 Adj.", "Adj. $R^2$", ltx_final)
-
-    writeLines(
-        paste(ltx_final, collapse = "\n"),
-        "tab-regression_transp.tex"
+  )
+  
+  # Panel B: rating dummies; controls are market cap + controversies
+  panel_b_tex <- make_panel_tex(
+    data = df2_enriched,
+    main = "rating",
+    controls = c("mkcapUSD_log", "ref_esg_contr_n"),
+    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    coef_map = c(
+      "(Intercept)" = "Constant",
+      "q90_ratingTRUE" = "Top-10\\% ESG rating",
+      "q10_ratingTRUE" = "Bottom-10\\% ESG rating"
     )
+  )
+  
+  # Panel C: controversies dummies; controls are market cap + rating
+  panel_c_tex <- make_panel_tex(
+    data = df2_enriched,
+    main = "contr",
+    controls = c("mkcapUSD_log", "msci_company_rating_n"),
+    stars = c("***" = .001, "**" = .01, "*" = 0.05),
+    coef_map = c(
+      "(Intercept)" = "Constant",
+      "q90_contrTRUE" = "Top-10\\% ESG controversies score",
+      "q10_contrTRUE" = "Bottom-10\\% ESG controversies score"
+    )
+  )
+
+  # helper: robust extraction
+  extract_blocks <- function(tex) {
+    lines <- unlist(strsplit(tex, "\n"))
+
+    i_mid <- which(grepl("\\\\midrule", lines))[1]
+    i_bot <- which(grepl("\\\\bottomrule", lines))[1]
+    body  <- lines[(i_mid + 1):(i_bot - 1)]
+
+    # pull GOF lines (Num.Obs. + R2 Adj.) out of body
+    gof_lines <- body[grepl("^Num\\.Obs\\.|^R2 Adj\\.", body)]
+    # coef block = everything before Num.Obs.
+    i_n <- which(grepl("^Num\\.Obs\\.", body))[1]
+    coef_block <- if (!is.na(i_n) && i_n > 1) body[1:(i_n - 1)] else body
+
+    list(coef_block = coef_block, gof_lines = gof_lines)
+  }
+
+  A <- extract_blocks(panel_a_tex)
+  B <- extract_blocks(panel_b_tex)
+  C <- extract_blocks(panel_c_tex)
+  
+  gofA <- A$gof_lines
+  gofA <- gsub("Num\\.Obs\\.", "$N$", gofA)
+  gofA <- gsub("R2 Adj\\.", "Adj. $R^2$", gofA)
+  
+  gofB <- B$gof_lines
+  gofB <- gsub("Num\\.Obs\\.", "$N$", gofB)
+  gofB <- gsub("R2 Adj\\.", "Adj. $R^2$", gofB)
+  
+  gofC <- C$gof_lines
+  gofC <- gsub("Num\\.Obs\\.", "$N$", gofC)
+  gofC <- gsub("R2 Adj\\.", "Adj. $R^2$", gofC)
+
+  # build LaTex scaffold
+  fe_rows <- c(
+    "Controls         & Yes & Yes & Yes & Yes & Yes \\\\",
+    "Year FE          & No & Yes & No  & ---  & ---  \\\\",
+    "Sector FE        & No & No  & Yes & ---  & ---  \\\\",
+    "Year $\\times$ Sector FE & No & No & No & Yes & Yes \\\\",
+    "Company FE       & No & No  & No  & No   & Yes \\\\"
+  )
+
+  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors and includes the remaining two determinants as continuous controls in all specifications. The models vary by the set of included fixed effects (FE): Model~(1) includes no fixed effects; Model~(2) includes year fixed effects; Model~(3) includes sector fixed effects; Model~(4) includes year-by-sector fixed effects; and Model~(5) includes company fixed effects. Standard errors are clustered by company and included in parentheses."
+
+  ltx <- c(
+    "\\begin{table}[!htbp]",
+    "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
+    "\\caption{\\label{tab:regression-transp-controls}Determinants of transparency}",
+    "\\centering",
+    "\\begin{threeparttable}",
+    "",
+    # --- Panel A
+    "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\toprule",
+    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    "\\midrule",
+    A$coef_block,
+    "\\midrule",
+    fe_rows,
+    "\\midrule",
+    gofA,
+    "\\bottomrule",
+    "\\end{tabularx}", "", "\\vspace{1em}",
+
+    # --- Panel B
+    "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\toprule",
+    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    "\\midrule",
+    B$coef_block,
+    "\\midrule",
+    fe_rows,
+    "\\midrule",
+    gofB,
+    "\\bottomrule",
+    "\\end{tabularx}", "", "\\vspace{1em}",
+
+    # --- Panel C
+    "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by ESG controversies}} \\\\",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\toprule",
+    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    "\\midrule",
+    C$coef_block,
+    "\\midrule",
+    fe_rows,
+    "\\midrule",
+    gofC,
+    "\\bottomrule",
+    "\\end{tabularx}", "",
+
+    # Notes
+    "\\begin{tablenotes}[para, flushleft]",
+    "\\scriptsize",
+    "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+    sprintf("\\item \\textbf{Notes:} %s", footnote_text),
+    "\\end{tablenotes}",
+    "\\end{threeparttable}",
+    "\\end{table}"
+  )
+
+  writeLines(paste(ltx, collapse = "\n"), "tab-regression_transp.tex")
 }
 ```
 
@@ -486,7 +540,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
       "ref_esg_contr_n" = "ESG controversies (lagged)"
     ),
     gof_omit = ".*",
-    output = "latex"
+    output = "latex",
   ) |>
     as.character()
 
@@ -696,6 +750,156 @@ ggplot2::ggsave(
   plot = p_yearfe,
   width = 6, height = 3.5, units = "in", dpi = 400, device = grDevices::pdf
 )
+
+```
+
+```{r}
+if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+
+  # ----------------------------
+  # options: "rating", "mkcap", "contr"
+  det_choice <- "rating"
+  # ----------------------------
+
+  # build firm-year panel
+  df_trend <- df |>
+    dplyr::group_by(firm, year) |>
+    dplyr::summarise(transp = mean(exists), .groups = "drop") |>
+    add_all_firm_data() |>
+    dplyr::mutate(
+      sector = primary_sics_sector,
+      mkcapUSD_log = log(mkcapUSD_lagged),
+      msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map),
+      ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map)
+    ) |>
+    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |>
+    dplyr::mutate(
+      t = year - min(year, na.rm = TRUE)
+    )
+
+  # pick variable used to form q10/q90 groups
+  det_var <- switch(
+    det_choice,
+    "rating" = "msci_company_rating_n",
+    "mkcap"  = "mkcapUSD_log",
+    "contr"  = "ref_esg_contr_n"
+  )
+
+  # within-year q10/q90 dummies for chosen determinant
+  df_trend <- df_trend |>
+    dplyr::group_by(year) |>
+    dplyr::mutate(
+      q10 = .data[[det_var]] <= stats::quantile(.data[[det_var]], 0.10, na.rm = TRUE),
+      q90 = .data[[det_var]] >= stats::quantile(.data[[det_var]], 0.90, na.rm = TRUE)
+    ) |>
+    dplyr::ungroup()
+
+  # models
+  
+  # (1) sector + country FE, linear trend
+  m1 <- fixest::feols(
+    transp ~ q10 + q90 + t + q10:t + q90:t | sector + country,
+    data = df_trend,
+    vcov = ~ firm
+  )
+
+  # (2) firm FE, linear trend
+  m2 <- fixest::feols(
+    transp ~ q10 + q90 + t + q10:t + q90:t | firm,
+    data = df_trend,
+    vcov = ~ firm
+  )
+
+  # table body from modelsummary
+  coef_map <- c(
+    "(Intercept)" = "Constant",
+    "q10TRUE" = "Bottom-10\\% group",
+    "q90TRUE" = "Top-10\\% group",
+    "t" = "Time trend",
+    "q10TRUE:t" = "Bottom-10\\% $\\times$ Time trend",
+    "q90TRUE:t" = "Top-10\\% $\\times$ Time trend"
+  )
+
+  tex_raw <- modelsummary::modelsummary(
+    list(
+      "Sector+Country FE" = m1,
+      "Firm FE" = m2
+    ),
+    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    coef_map = coef_map,
+    gof_omit = ".*",
+    output = "latex",
+    escape = FALSE
+  ) |>
+    as.character()
+
+  tex_lines <- unlist(strsplit(tex_raw, "\n"))
+  i_mid <- which(grepl("\\\\midrule", tex_lines))[1]
+  i_bot <- which(grepl("\\\\bottomrule", tex_lines))[1]
+  coef_block <- tex_lines[(i_mid + 1):(i_bot - 1)]
+
+  # GOF
+  N1 <- stats::nobs(m1); N2 <- stats::nobs(m2)
+  ar2_1 <- unname(fixest::fitstat(m1, "ar2"))
+  ar2_2 <- unname(fixest::fitstat(m2, "ar2"))
+
+  fmtN  <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
+  fmtR2 <- function(x) sprintf("%.3f", x)
+
+  det_label <- switch(
+    det_choice,
+    "rating" = "ESG rating",
+    "mkcap"  = "market capitalization",
+    "contr"  = "ESG controversies"
+  )
+
+  fe_rows <- c(
+    "\\midrule",
+    sprintf("Determinant for q10/q90 & \\multicolumn{2}{c}{%s} \\\\", det_label),
+    sprintf("Sector FE               & %s & %s \\\\", "Yes", "No"),
+    sprintf("Country FE              & %s & %s \\\\", "Yes", "No"),
+    sprintf("Firm FE                 & %s & %s \\\\", "No",  "Yes"),
+    "\\midrule",
+    sprintf("$N$                     & %s & %s \\\\", fmtN(N1), fmtN(N2)),
+    sprintf("Adj. $R^2$              & %s & %s \\\\", fmtR2(ar2_1), fmtR2(ar2_2))
+  )
+
+
+  footnote_text <- paste0(
+    "This table reports firm-year panel regressions where the dependent variable is the transparency score. ",
+    "The specification includes indicators for bottom/top decile membership (q10/q90), a linear time trend, ",
+    "and interactions between the time trend and q10/q90. Model (1) includes sector and country fixed effects; ",
+    "Model (2) includes firm fixed effects. Standard errors are clustered at the firm level."
+  )
+
+  ltx <- c(
+    "\\begin{table}[!htbp]",
+    "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
+    "\\caption{\\label{tab:regression-transp-trend-heterogeneity}Transparency trends by rating group}",
+    "\\centering",
+    "\\begin{threeparttable}",
+    "",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} cc }",
+    "\\toprule",
+    " & Sector+Country FE & Firm FE \\\\",
+    "\\midrule",
+    coef_block,
+    fe_rows,
+    "\\bottomrule",
+    "\\end{tabularx}",
+    "",
+    "\\begin{tablenotes}[para, flushleft]",
+    "\\scriptsize",
+    "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+    sprintf("\\item \\textbf{Notes:} %s", footnote_text),
+    "\\end{tablenotes}",
+    "\\end{threeparttable}",
+    "\\end{table}"
+  )
+
+  out_tex <- here::here("analyses/chunks/tab-regression_transp_trend_interactions.tex")
+  writeLines(paste(ltx, collapse = "\n"), out_tex)
+}
 
 ```
 
