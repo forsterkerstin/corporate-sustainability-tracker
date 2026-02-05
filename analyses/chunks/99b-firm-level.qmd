@@ -142,6 +142,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                 q10 = quantile(.data[[quant_col]], 0.1, na.rm = TRUE),
                 q90 = quantile(.data[[quant_col]], 0.9, na.rm = TRUE),
                 group = case_when(
+                    is.na(.data[[quant_col]]) ~ NA_character_,
                     .data[[quant_col]] >= q90 ~ "Top 10%",
                     .data[[quant_col]] <= q10 ~ "Bottom 10%",
                     TRUE ~ "Middle 80%"
@@ -159,6 +160,12 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
     df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
 }
+```
+```{r}
+# After violin plot data creation
+cat("Violin data - controversy score summary:\n")
+summary(df_controversies_plot$ref_esg_controversies_score_n)
+table(df_controversies_plot$group)
 ```
 
 ```{r}
@@ -185,7 +192,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             TRUE ~ ""
         )
 
-        sprintf("diff = %.1f p.p.%s", abs(ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
+        sprintf("diff = %+.1f p.p.%s", (ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
     }
 
 
@@ -297,6 +304,13 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
       ungroup()
 }
 ```
+```{r}
+
+# After regression data creation  
+cat("Regression data - controversy score summary:\n")
+summary(df2_enriched$ref_esg_contr_n)
+table(df2_enriched$q10_contr, df2_enriched$q90_contr)
+```
 
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
@@ -311,16 +325,19 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "contr"  = c("q10_contr",  "q90_contr")
   )
 
-  # build RHS: focal dummies + continuous controls
-  rhs <- paste(c(main_terms, controls), collapse = " + ")
+  # build RHS
+  rhs_main_only <- paste(main_terms, collapse = " + ")
+  rhs_full      <- paste(c(main_terms, controls), collapse = " + ")
 
-  f1 <- stats::as.formula(paste0("transp ~ ", rhs))
-  f2 <- stats::as.formula(paste0("transp ~ ", rhs, " | year"))
-  f3 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector"))
-  f4 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector^year"))
-  f5 <- stats::as.formula(paste0("transp ~ ", rhs, " | sector^year + firm"))
+  f0 <- stats::as.formula(paste0("transp ~ ", rhs_main_only))
+  f1 <- stats::as.formula(paste0("transp ~ ", rhs_full))
+  f2 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | year"))
+  f3 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector"))
+  f4 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year"))
+  f5 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year + firm"))
 
   models <- list(
+    fixest::feols(f0, data = data, vcov = ~firm),
     fixest::feols(f1, data = data, vcov = ~firm),
     fixest::feols(f2, data = data, vcov = ~firm),
     fixest::feols(f3, data = data, vcov = ~firm),
@@ -417,14 +434,15 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   # build LaTex scaffold
   fe_rows <- c(
-    "Controls         & Yes & Yes & Yes & Yes & Yes \\\\",
-    "Year FE          & No & Yes & No  & ---  & ---  \\\\",
-    "Sector FE        & No & No  & Yes & ---  & ---  \\\\",
-    "Year $\\times$ Sector FE & No & No & No & Yes & Yes \\\\",
-    "Company FE       & No & No  & No  & No   & Yes \\\\"
+  "Controls         & No & Yes & Yes & Yes & Yes & Yes \\\\",
+  "Year FE          & No & No  & Yes & No  & --- & --- \\\\",
+  "Sector FE        & No & No  & No  & Yes & --- & --- \\\\",
+  "Year $\\times$ Sector FE & No & No & No & No & Yes & Yes \\\\",
+  "Company FE       & No & No  & No  & No & No  & Yes \\\\"
   )
 
-  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors and includes the remaining two determinants as continuous controls in all specifications. The models vary by the set of included fixed effects (FE): Model~(1) includes no fixed effects; Model~(2) includes year fixed effects; Model~(3) includes sector fixed effects; Model~(4) includes year-by-sector fixed effects; and Model~(5) includes company fixed effects. Standard errors are clustered by company and included in parentheses."
+
+  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors. Deciles are calculated on a yearly basis. Panel A reports results using lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI, and panel C uses the lagged ESG controversies score from Refinitiv. Model~(1) includes only the focal determinant dummies and no additional controls. Models~(2)–(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression.We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For example, according to Model (1), companies in the top-10\\% versus bottom-10\\% of ESG ratings have transparency scores that are approximately 22\\% higher, calculated by comparing fitted transparency levels from the regression model. For companies in the bottom decile of ESG controversies, we find lower levels of transparency, potentially indicating the disciplining effect of external pressure"
 
   ltx <- c(
     "\\begin{table}[!htbp]",
@@ -435,9 +453,9 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "",
     # --- Panel A
     "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\",
-    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }",
     "\\toprule",
-    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    " & (1) & (2) & (3) & (4) & (5) & (6) \\\\",
     "\\midrule",
     A$coef_block,
     "\\midrule",
@@ -449,9 +467,9 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
     # --- Panel B
     "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\",
-    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }",
     "\\toprule",
-    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    " & (1) & (2) & (3) & (4) & (5) & (6) \\\\",
     "\\midrule",
     B$coef_block,
     "\\midrule",
@@ -463,9 +481,9 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
     # --- Panel C
     "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by ESG controversies}} \\\\",
-    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{5}{>{\\centering\\arraybackslash}X} }",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }",
     "\\toprule",
-    " & (1) & (2) & (3) & (4) & (5) \\\\",
+    " & (1) & (2) & (3) & (4) & (5) & (6) \\\\",
     "\\midrule",
     C$coef_block,
     "\\midrule",
@@ -478,7 +496,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # Notes
     "\\begin{tablenotes}[para, flushleft]",
     "\\scriptsize",
-    "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+    "\\fontsize{7pt}{7pt}\\linespread{1.2}\\selectfont",
     sprintf("\\item \\textbf{Notes:} %s", footnote_text),
     "\\end{tablenotes}",
     "\\end{threeparttable}",
@@ -489,269 +507,269 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 }
 ```
 
-```{r panel regression time trend}
-if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
+<!-- ```{r panel regression time trend} -->
+<!-- if (file.exists(file.path(datasets_dir, "firm_data.csv"))) { -->
 
-  # Build firm-year panel with regressors
-  df_trend <- df |>
-    dplyr::group_by(firm, year) |>
-    dplyr::summarise(transp = mean(exists), .groups = "drop") |>
-    add_all_firm_data() |>
-    dplyr::mutate(
-      sector = primary_sics_sector,
-      mkcapUSD_log = log(mkcapUSD_lagged),
-      msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map),
-      ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map)
-    ) |>
-    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n)
+<!--   # Build firm-year panel with regressors -->
+<!--   df_trend <- df |> -->
+<!--     dplyr::group_by(firm, year) |> -->
+<!--     dplyr::summarise(transp = mean(exists), .groups = "drop") |> -->
+<!--     add_all_firm_data() |> -->
+<!--     dplyr::mutate( -->
+<!--       sector = primary_sics_sector, -->
+<!--       mkcapUSD_log = log(mkcapUSD_lagged), -->
+<!--       msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map), -->
+<!--       ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map) -->
+<!--     ) |> -->
+<!--     dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) -->
 
-  # Spec (1): year FE + sector FE + country FE
-  m1 <- fixest::feols(
-    transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + sector + country,
-    data = df_trend,
-    vcov = ~ firm
-  )
+<!--   # Spec (1): year FE + sector FE + country FE -->
+<!--   m1 <- fixest::feols( -->
+<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + sector + country, -->
+<!--     data = df_trend, -->
+<!--     vcov = ~ firm -->
+<!--   ) -->
 
-  # Spec (2): year FE + firm FE
-  m2 <- fixest::feols(
-    transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + firm,
-    data = df_trend,
-    vcov = ~ firm
-  )
+<!--   # Spec (2): year FE + firm FE -->
+<!--   m2 <- fixest::feols( -->
+<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + firm, -->
+<!--     data = df_trend, -->
+<!--     vcov = ~ firm -->
+<!--   ) -->
 
-  # Spec (3): sector × year FE  (no separate year FE)
-  m3 <- fixest::feols(
-    transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | sector^year,
-    data = df_trend,
-    vcov = ~ firm
-  )
+<!--   # Spec (3): sector × year FE  (no separate year FE) -->
+<!--   m3 <- fixest::feols( -->
+<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | sector^year, -->
+<!--     data = df_trend, -->
+<!--     vcov = ~ firm -->
+<!--   ) -->
 
-  # output table
-  tex_raw <- modelsummary::modelsummary(
-    list(
-      "Sector+Country FE" = m1,
-      "Firm FE" = m2,
-      "Sector$\\times$Year FE" = m3
-    ),
-    stars = c("***" = .01, "**" = .05, "*" = 0.1),
-    coef_map = c(
-      "mkcapUSD_log" = "Log market cap (lagged)",
-      "msci_company_rating_n" = "ESG rating (lagged)",
-      "ref_esg_contr_n" = "ESG controversies (lagged)"
-    ),
-    gof_omit = ".*",
-    output = "latex",
-  ) |>
-    as.character()
+<!--   # output table -->
+<!--   tex_raw <- modelsummary::modelsummary( -->
+<!--     list( -->
+<!--       "Sector+Country FE" = m1, -->
+<!--       "Firm FE" = m2, -->
+<!--       "Sector$\\times$Year FE" = m3 -->
+<!--     ), -->
+<!--     stars = c("***" = .01, "**" = .05, "*" = 0.1), -->
+<!--     coef_map = c( -->
+<!--       "mkcapUSD_log" = "Log market cap (lagged)", -->
+<!--       "msci_company_rating_n" = "ESG rating (lagged)", -->
+<!--       "ref_esg_contr_n" = "ESG controversies (lagged)" -->
+<!--     ), -->
+<!--     gof_omit = ".*", -->
+<!--     output = "latex", -->
+<!--   ) |> -->
+<!--     as.character() -->
 
-  tex_lines <- unlist(strsplit(tex_raw, "\n"))
+<!--   tex_lines <- unlist(strsplit(tex_raw, "\n")) -->
 
-  # extract coefficient block between \midrule and \bottomrule
-  i_mid <- which(grepl("\\\\midrule", tex_lines))[1]
-  i_bot <- which(grepl("\\\\bottomrule", tex_lines))[1]
-  coef_block <- tex_lines[(i_mid + 1):(i_bot - 1)]
+<!--   # extract coefficient block between \midrule and \bottomrule -->
+<!--   i_mid <- which(grepl("\\\\midrule", tex_lines))[1] -->
+<!--   i_bot <- which(grepl("\\\\bottomrule", tex_lines))[1] -->
+<!--   coef_block <- tex_lines[(i_mid + 1):(i_bot - 1)] -->
 
-  # compute GOF
-  N1 <- stats::nobs(m1); N2 <- stats::nobs(m2); N3 <- stats::nobs(m3)
-  ar2_1 <- unname(fixest::fitstat(m1, "ar2"))  # adjusted R2
-  ar2_2 <- unname(fixest::fitstat(m2, "ar2"))
-  ar2_3 <- unname(fixest::fitstat(m3, "ar2"))
+<!--   # compute GOF -->
+<!--   N1 <- stats::nobs(m1); N2 <- stats::nobs(m2); N3 <- stats::nobs(m3) -->
+<!--   ar2_1 <- unname(fixest::fitstat(m1, "ar2"))  # adjusted R2 -->
+<!--   ar2_2 <- unname(fixest::fitstat(m2, "ar2")) -->
+<!--   ar2_3 <- unname(fixest::fitstat(m3, "ar2")) -->
 
-  # format numbers
-  fmtN  <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
-  fmtR2 <- function(x) sprintf("%.3f", x)
+<!--   # format numbers -->
+<!--   fmtN  <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE) -->
+<!--   fmtR2 <- function(x) sprintf("%.3f", x) -->
 
-  # FE rows
-  fe_rows <- c(
-    "\\midrule",
-    sprintf("Year FE            & %s & %s & %s \\\\", "Yes", "Yes", "Yes"),
-    sprintf("Sector FE          & %s & %s & %s \\\\", "Yes", "No",  "---"),
-    sprintf("Country FE         & %s & %s & %s \\\\", "Yes", "No",  "No"),
-    sprintf("Firm FE            & %s & %s & %s \\\\", "No",  "Yes", "No"),
-    sprintf("Sector $\\times$ Year FE & %s & %s & %s \\\\", "No", "No", "Yes"),
-    "\\midrule",
-    sprintf("$N$               & %s & %s & %s \\\\", fmtN(N1), fmtN(N2), fmtN(N3)),
-    sprintf("Adj. $R^2$        & %s & %s & %s \\\\", fmtR2(ar2_1), fmtR2(ar2_2), fmtR2(ar2_3))
-  )
+<!--   # FE rows -->
+<!--   fe_rows <- c( -->
+<!--     "\\midrule", -->
+<!--     sprintf("Year FE            & %s & %s & %s \\\\", "Yes", "Yes", "Yes"), -->
+<!--     sprintf("Sector FE          & %s & %s & %s \\\\", "Yes", "No",  "---"), -->
+<!--     sprintf("Country FE         & %s & %s & %s \\\\", "Yes", "No",  "No"), -->
+<!--     sprintf("Firm FE            & %s & %s & %s \\\\", "No",  "Yes", "No"), -->
+<!--     sprintf("Sector $\\times$ Year FE & %s & %s & %s \\\\", "No", "No", "Yes"), -->
+<!--     "\\midrule", -->
+<!--     sprintf("$N$               & %s & %s & %s \\\\", fmtN(N1), fmtN(N2), fmtN(N3)), -->
+<!--     sprintf("Adj. $R^2$        & %s & %s & %s \\\\", fmtR2(ar2_1), fmtR2(ar2_2), fmtR2(ar2_3)) -->
+<!--   ) -->
 
-  footnote_text <- paste0(
-    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score. ",
-    "Regressors are log market capitalization (lagged), lagged ESG rating, and lagged ESG controversies score. ",
-    "All specifications include year fixed effects. Model (1) adds sector and country fixed effects. ",
-    "Model (2) adds firm fixed effects. Model (3) includes sector-by-year fixed effects. ",
-    "Standard errors are clustered at the firm level. Significance levels: ***, **, * correspond to 1\\%, 5\\%, and 10\\%."
-  )
+<!--   footnote_text <- paste0( -->
+<!--     "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score. ", -->
+<!--     "Regressors are log market capitalization (lagged), lagged ESG rating, and lagged ESG controversies score. ", -->
+<!--     "All specifications include year fixed effects. Model (1) adds sector and country fixed effects. ", -->
+<!--     "Model (2) adds firm fixed effects. Model (3) includes sector-by-year fixed effects. ", -->
+<!--     "Standard errors are clustered by compnay and reported in parantheses. Significance levels: ***, **, * correspond to 1\\%, 5\\%, and 10\\%." -->
+<!--   ) -->
 
-  # table scaffold
-  ltx <- c(
-    "\\begin{table}[!htbp]",
-    "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}",
-    "\\caption{\\label{tab:regression-transp-controls}Transparency and firm characteristics}",
-    "\\centering",
-    "\\begin{threeparttable}",
-    "",
-    "\\begin{tabularx}{\\textwidth}{ p{5cm} ccc }",
-    "\\toprule",
-    " & Sector+Country FE & Firm FE & Sector$\\times$Year FE \\\\",
-    "\\midrule",
-    coef_block,
-    fe_rows,
-    "\\bottomrule",
-    "\\end{tabularx}",
-    "",
-    "\\begin{tablenotes}[para, flushleft]",
-    "\\scriptsize",
-    "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
-    sprintf("\\item \\textbf{Notes:} %s", footnote_text),
-    "\\end{tablenotes}",
-    "\\end{threeparttable}",
-    "\\end{table}"
-  )
+<!--   # table scaffold -->
+<!--   ltx <- c( -->
+<!--     "\\begin{table}[!htbp]", -->
+<!--     "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}", -->
+<!--     "\\caption{\\label{tab:regression-transp-controls}Transparency and firm characteristics}", -->
+<!--     "\\centering", -->
+<!--     "\\begin{threeparttable}", -->
+<!--     "", -->
+<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} ccc }", -->
+<!--     "\\toprule", -->
+<!--     " & Sector+Country FE & Firm FE & Sector$\\times$Year FE \\\\", -->
+<!--     "\\midrule", -->
+<!--     coef_block, -->
+<!--     fe_rows, -->
+<!--     "\\bottomrule", -->
+<!--     "\\end{tabularx}", -->
+<!--     "", -->
+<!--     "\\begin{tablenotes}[para, flushleft]", -->
+<!--     "\\scriptsize", -->
+<!--     "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont", -->
+<!--     sprintf("\\item \\textbf{Notes:} %s", footnote_text), -->
+<!--     "\\end{tablenotes}", -->
+<!--     "\\end{threeparttable}", -->
+<!--     "\\end{table}" -->
+<!--   ) -->
 
-  out_tex <- here::here("analyses/chunks/tab-regression_transp_trend_controls.tex")
-  writeLines(paste(ltx, collapse = "\n"), out_tex)
-}
+<!--   out_tex <- here::here("analyses/chunks/tab-regression_transp_trend_controls.tex") -->
+<!--   writeLines(paste(ltx, collapse = "\n"), out_tex) -->
+<!-- } -->
 
-```
+<!-- ``` -->
 
-```{r}
-# Plot year fixed effects from the firm-FE model (m2)
+<!-- ```{r} -->
+<!-- # Plot year fixed effects from the firm-FE model (m2) -->
 
-# helper
-`%||%` <- function(a, b) if (!is.null(a)) a else b
+<!-- # helper -->
+<!-- `%||%` <- function(a, b) if (!is.null(a)) a else b -->
 
-# extract year FE
-fe_obj <- tryCatch(fixest::fixef(m2, se = TRUE), error = function(e) NULL)
+<!-- # extract year FE -->
+<!-- fe_obj <- tryCatch(fixest::fixef(m2, se = TRUE), error = function(e) NULL) -->
 
-if (!is.null(fe_obj) && !is.null(fe_obj$year) && is.data.frame(fe_obj$year)) {
-  # data.frame with rownames = years
-  yr_df <- fe_obj$year
+<!-- if (!is.null(fe_obj) && !is.null(fe_obj$year) && is.data.frame(fe_obj$year)) { -->
+<!--   # data.frame with rownames = years -->
+<!--   yr_df <- fe_obj$year -->
 
-  # pick estimate / se columns
-  est_col <- intersect(c("fixef", "Estimate", "estimate"), names(yr_df))
-  if (length(est_col) == 0) est_col <- names(yr_df)[1]
+<!--   # pick estimate / se columns -->
+<!--   est_col <- intersect(c("fixef", "Estimate", "estimate"), names(yr_df)) -->
+<!--   if (length(est_col) == 0) est_col <- names(yr_df)[1] -->
 
-  se_col <- intersect(c("se", "Std. Error", "Std..Error", "std.error"), names(yr_df))
-  if (length(se_col) == 0) se_col <- character(0)
+<!--   se_col <- intersect(c("se", "Std. Error", "Std..Error", "std.error"), names(yr_df)) -->
+<!--   if (length(se_col) == 0) se_col <- character(0) -->
 
-  est <- yr_df[[est_col[1]]]
-  se  <- if (length(se_col) > 0) yr_df[[se_col[1]]] else rep(NA_real_, length(est))
+<!--   est <- yr_df[[est_col[1]]] -->
+<!--   se  <- if (length(se_col) > 0) yr_df[[se_col[1]]] else rep(NA_real_, length(est)) -->
 
-  names(est) <- rownames(yr_df)
-  names(se)  <- rownames(yr_df)
-} else {
-  # fallback: estimates only
-  est <- fixest::fixef(m2)$year
-  se  <- NULL
-}
+<!--   names(est) <- rownames(yr_df) -->
+<!--   names(se)  <- rownames(yr_df) -->
+<!-- } else { -->
+<!--   # fallback: estimates only -->
+<!--   est <- fixest::fixef(m2)$year -->
+<!--   se  <- NULL -->
+<!-- } -->
 
-# robust year parsing
-parse_year <- function(x) as.integer(gsub("^.*?(\\d{4}).*$", "\\1", x))
+<!-- # robust year parsing -->
+<!-- parse_year <- function(x) as.integer(gsub("^.*?(\\d{4}).*$", "\\1", x)) -->
 
-year_fe <- tibble::tibble(
-  year = parse_year(names(est)),
-  fe   = as.numeric(est),
-  se   = if (!is.null(se)) as.numeric(se) else NA_real_
-) |>
-  dplyr::filter(!is.na(year)) |>
-  dplyr::arrange(year)
+<!-- year_fe <- tibble::tibble( -->
+<!--   year = parse_year(names(est)), -->
+<!--   fe   = as.numeric(est), -->
+<!--   se   = if (!is.null(se)) as.numeric(se) else NA_real_ -->
+<!-- ) |> -->
+<!--   dplyr::filter(!is.na(year)) |> -->
+<!--   dplyr::arrange(year) -->
 
-# normalize to base year
-base_year <- min(year_fe$year, na.rm = TRUE)
-base_fe   <- year_fe$fe[year_fe$year == base_year][1]
+<!-- # normalize to base year -->
+<!-- base_year <- min(year_fe$year, na.rm = TRUE) -->
+<!-- base_fe   <- year_fe$fe[year_fe$year == base_year][1] -->
 
-year_fe <- year_fe |>
-  dplyr::mutate(
-    fe_rel = fe - base_fe,           # year FE relative to base year
-    fe_pp  = 100 * fe_rel,           # transparency is share -> percentage points
-    lo_pp  = 100 * (fe_rel - 1.96 * se),
-    hi_pp  = 100 * (fe_rel + 1.96 * se)
-  )
+<!-- year_fe <- year_fe |> -->
+<!--   dplyr::mutate( -->
+<!--     fe_rel = fe - base_fe,           # year FE relative to base year -->
+<!--     fe_pp  = 100 * fe_rel,           # transparency is share -> percentage points -->
+<!--     lo_pp  = 100 * (fe_rel - 1.96 * se), -->
+<!--     hi_pp  = 100 * (fe_rel + 1.96 * se) -->
+<!--   ) -->
 
-# if SEs are missing, re-estimate auxiliary model with year dummies
-if (all(is.na(year_fe$se)) || nrow(year_fe) <= 1) {
+<!-- # if SEs are missing, re-estimate auxiliary model with year dummies -->
+<!-- if (all(is.na(year_fe$se)) || nrow(year_fe) <= 1) { -->
 
-  data_m2 <- if (exists("df_trend")) df_trend else tryCatch(fixest::get_data(m2), error = function(e) NULL)
-  if (is.null(data_m2)) stop("Need df_trend in the environment (the data used for m2).")
+<!--   data_m2 <- if (exists("df_trend")) df_trend else tryCatch(fixest::get_data(m2), error = function(e) NULL) -->
+<!--   if (is.null(data_m2)) stop("Need df_trend in the environment (the data used for m2).") -->
 
-  # make year numeric
-  data_m2 <- data_m2 |>
-    dplyr::mutate(year = as.integer(as.character(year)))
+<!--   # make year numeric -->
+<!--   data_m2 <- data_m2 |> -->
+<!--     dplyr::mutate(year = as.integer(as.character(year))) -->
 
-  base_year <- min(data_m2$year, na.rm = TRUE)
+<!--   base_year <- min(data_m2$year, na.rm = TRUE) -->
 
-  # Auxiliary model: firm FE + explicit year dummies; same controls and clustering
-  m2_aux <- fixest::feols(
-    transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n + fixest::i(year, ref = base_year) | firm,
-    data = data_m2,
-    vcov = ~ firm
-  )
+<!--   # Auxiliary model: firm FE + explicit year dummies; same controls and clustering -->
+<!--   m2_aux <- fixest::feols( -->
+<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n + fixest::i(year, ref = base_year) | firm, -->
+<!--     data = data_m2, -->
+<!--     vcov = ~ firm -->
+<!--   ) -->
 
-  co <- stats::coef(m2_aux)
-  vc <- stats::vcov(m2_aux)
+<!--   co <- stats::coef(m2_aux) -->
+<!--   vc <- stats::vcov(m2_aux) -->
 
-  idx <- grep("year::", names(co))
-  if (length(idx) == 0) {
-    idx <- grep("\\d{4}", names(co))
-  }
+<!--   idx <- grep("year::", names(co)) -->
+<!--   if (length(idx) == 0) { -->
+<!--     idx <- grep("\\d{4}", names(co)) -->
+<!--   } -->
 
-  yrs <- parse_year(names(co)[idx])
-  keep <- !is.na(yrs)
+<!--   yrs <- parse_year(names(co)[idx]) -->
+<!--   keep <- !is.na(yrs) -->
 
-  est2 <- co[idx][keep]
-  se2  <- sqrt(diag(vc))[idx][keep]
-  yrs  <- yrs[keep]
+<!--   est2 <- co[idx][keep] -->
+<!--   se2  <- sqrt(diag(vc))[idx][keep] -->
+<!--   yrs  <- yrs[keep] -->
 
-  # build full series incl. base year = 0
-  year_fe <- tibble::tibble(
-    year = c(base_year, yrs),
-    fe_pp = 100 * c(0, as.numeric(est2)),
-    se_pp = 100 * c(NA_real_, as.numeric(se2))
-  ) |>
-    dplyr::arrange(year) |>
-    dplyr::mutate(
-      lo_pp = fe_pp - 1.96 * se_pp,
-      hi_pp = fe_pp + 1.96 * se_pp
-    )
-  
-  year_fe <- year_fe |>
-    dplyr::mutate(se = se_pp / 100) |>
-    dplyr::select(year, fe_pp, lo_pp, hi_pp, se)
-}
+<!--   # build full series incl. base year = 0 -->
+<!--   year_fe <- tibble::tibble( -->
+<!--     year = c(base_year, yrs), -->
+<!--     fe_pp = 100 * c(0, as.numeric(est2)), -->
+<!--     se_pp = 100 * c(NA_real_, as.numeric(se2)) -->
+<!--   ) |> -->
+<!--     dplyr::arrange(year) |> -->
+<!--     dplyr::mutate( -->
+<!--       lo_pp = fe_pp - 1.96 * se_pp, -->
+<!--       hi_pp = fe_pp + 1.96 * se_pp -->
+<!--     ) -->
 
-
-p_yearfe <- ggplot2::ggplot(year_fe, ggplot2::aes(x = year, y = fe_pp)) +
-  { if (any(!is.na(year_fe$se))) ggplot2::geom_ribbon(
-      ggplot2::aes(ymin = lo_pp, ymax = hi_pp),
-      alpha = 0.15,
-      na.rm = TRUE
-    ) } +
-  ggplot2::geom_line(linewidth = 1.1) +
-  ggplot2::geom_point(size = 2, stroke = 0.8, shape = 21, fill = "white") +
-  ggplot2::scale_x_continuous(breaks = seq(min(year_fe$year), max(year_fe$year), by = 2)) +
-  ggplot2::labs(
-    title = paste0("Year effects from firm-FE model (base year = ", base_year, ")"),
-    y = NULL, x = NULL, color = NULL, fill = NULL
-  ) +
-  ggplot2::theme_minimal(base_size = 10) +
-  ggplot2::theme(
-    plot.title = ggplot2::element_text(hjust = 0.5),
-    axis.line = ggplot2::element_line(color = "black"),
-    axis.ticks = ggplot2::element_line(color = "black"),
-    panel.grid.major.y = ggplot2::element_line(color = "grey80", linetype = "dashed"),
-    panel.grid.minor.y = ggplot2::element_blank(),
-    panel.grid.major.x = ggplot2::element_blank(),
-    panel.grid.minor.x = ggplot2::element_blank()
-  )
+<!--   year_fe <- year_fe |> -->
+<!--     dplyr::mutate(se = se_pp / 100) |> -->
+<!--     dplyr::select(year, fe_pp, lo_pp, hi_pp, se) -->
+<!-- } -->
 
 
-ggplot2::ggsave(
-  filename = here::here("fig", "fig-yearFE-firmFE.pdf"),
-  plot = p_yearfe,
-  width = 6, height = 3.5, units = "in", dpi = 400, device = grDevices::pdf
-)
+<!-- p_yearfe <- ggplot2::ggplot(year_fe, ggplot2::aes(x = year, y = fe_pp)) + -->
+<!--   { if (any(!is.na(year_fe$se))) ggplot2::geom_ribbon( -->
+<!--       ggplot2::aes(ymin = lo_pp, ymax = hi_pp), -->
+<!--       alpha = 0.15, -->
+<!--       na.rm = TRUE -->
+<!--     ) } + -->
+<!--   ggplot2::geom_line(linewidth = 1.1) + -->
+<!--   ggplot2::geom_point(size = 2, stroke = 0.8, shape = 21, fill = "white") + -->
+<!--   ggplot2::scale_x_continuous(breaks = seq(min(year_fe$year), max(year_fe$year), by = 2)) + -->
+<!--   ggplot2::labs( -->
+<!--     title = paste0("Year effects from firm-FE model (base year = ", base_year, ")"), -->
+<!--     y = NULL, x = NULL, color = NULL, fill = NULL -->
+<!--   ) + -->
+<!--   ggplot2::theme_minimal(base_size = 10) + -->
+<!--   ggplot2::theme( -->
+<!--     plot.title = ggplot2::element_text(hjust = 0.5), -->
+<!--     axis.line = ggplot2::element_line(color = "black"), -->
+<!--     axis.ticks = ggplot2::element_line(color = "black"), -->
+<!--     panel.grid.major.y = ggplot2::element_line(color = "grey80", linetype = "dashed"), -->
+<!--     panel.grid.minor.y = ggplot2::element_blank(), -->
+<!--     panel.grid.major.x = ggplot2::element_blank(), -->
+<!--     panel.grid.minor.x = ggplot2::element_blank() -->
+<!--   ) -->
 
-```
+
+<!-- ggplot2::ggsave( -->
+<!--   filename = here::here("fig", "fig-yearFE-firmFE.pdf"), -->
+<!--   plot = p_yearfe, -->
+<!--   width = 6, height = 3.5, units = "in", dpi = 400, device = grDevices::pdf -->
+<!-- ) -->
+
+<!-- ``` -->
 
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
@@ -776,6 +794,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     dplyr::mutate(
       t = year - min(year, na.rm = TRUE)
     )
+  
+  controls <- c("mkcapUSD_log", "ref_esg_contr_n")
 
   # pick variable used to form q10/q90 groups
   det_var <- switch(
@@ -796,16 +816,30 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   # models
   
-  # (1) sector + country FE, linear trend
+  # (1) no controls, no FE
   m1 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t | sector + country,
+    transp ~ q10 + q90 + t + q10:t + q90:t,
     data = df_trend,
     vcov = ~ firm
   )
-
-  # (2) firm FE, linear trend
+  
+  # (2) add controls
   m2 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t | firm,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n,
+    data = df_trend,
+    vcov = ~ firm
+  )
+  
+  # (3) add sector FE
+  m3 <- fixest::feols(
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | sector,
+    data = df_trend,
+    vcov = ~ firm
+  )
+  
+  # (4) add firm FE
+  m4 <- fixest::feols(
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | firm,
     data = df_trend,
     vcov = ~ firm
   )
@@ -813,35 +847,38 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   # table body from modelsummary
   coef_map <- c(
     "(Intercept)" = "Constant",
+     "q90TRUE" = "Top-10\\% group",
     "q10TRUE" = "Bottom-10\\% group",
-    "q90TRUE" = "Top-10\\% group",
     "t" = "Time trend",
-    "q10TRUE:t" = "Bottom-10\\% $\\times$ Time trend",
-    "q90TRUE:t" = "Top-10\\% $\\times$ Time trend"
+    "q90TRUE:t" = "Top-10\\% $\\times$ Time trend",
+    "q10TRUE:t" = "Bottom-10\\% $\\times$ Time trend"
   )
 
   tex_raw <- modelsummary::modelsummary(
     list(
-      "Sector+Country FE" = m1,
-      "Firm FE" = m2
+      "(1)" = m1,
+      "(2)" = m2,
+      "(3)" = m3,
+      "(4)" = m4
     ),
-    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    stars = c("***" = .001, "**" = .01, "*" = 0.05),
     coef_map = coef_map,
+    coef_omit = paste0("^(", paste(controls, collapse = "|"), ")$"),
     gof_omit = ".*",
     output = "latex",
     escape = FALSE
   ) |>
     as.character()
 
+
   tex_lines <- unlist(strsplit(tex_raw, "\n"))
   i_mid <- which(grepl("\\\\midrule", tex_lines))[1]
   i_bot <- which(grepl("\\\\bottomrule", tex_lines))[1]
   coef_block <- tex_lines[(i_mid + 1):(i_bot - 1)]
-
+  
   # GOF
-  N1 <- stats::nobs(m1); N2 <- stats::nobs(m2)
-  ar2_1 <- unname(fixest::fitstat(m1, "ar2"))
-  ar2_2 <- unname(fixest::fitstat(m2, "ar2"))
+  Ns  <- sapply(list(m1, m2, m3, m4), stats::nobs)
+  ar2 <- sapply(list(m1, m2, m3, m4), function(m) unname(fixest::fitstat(m, "ar2")))
 
   fmtN  <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
   fmtR2 <- function(x) sprintf("%.3f", x)
@@ -855,22 +892,20 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   fe_rows <- c(
     "\\midrule",
-    sprintf("Determinant for q10/q90 & \\multicolumn{2}{c}{%s} \\\\", det_label),
-    sprintf("Sector FE               & %s & %s \\\\", "Yes", "No"),
-    sprintf("Country FE              & %s & %s \\\\", "Yes", "No"),
-    sprintf("Firm FE                 & %s & %s \\\\", "No",  "Yes"),
+    sprintf("Determinant for top/bottom groups & \\multicolumn{4}{c}{%s} \\\\", det_label),
+    sprintf("Controls               & No & Yes & Yes & Yes \\\\"),
+    sprintf("Sector FE              & No & No  & Yes & No  \\\\"),
+    sprintf("Firm FE                & No & No  & No  & Yes \\\\"),
     "\\midrule",
-    sprintf("$N$                     & %s & %s \\\\", fmtN(N1), fmtN(N2)),
-    sprintf("Adj. $R^2$              & %s & %s \\\\", fmtR2(ar2_1), fmtR2(ar2_2))
+    sprintf("$N$                     & %s & %s & %s & %s \\\\",
+            fmtN(Ns[1]), fmtN(Ns[2]), fmtN(Ns[3]), fmtN(Ns[4])),
+    sprintf("Adj. $R^2$              & %s & %s & %s & %s \\\\",
+            fmtR2(ar2[1]), fmtR2(ar2[2]), fmtR2(ar2[3]), fmtR2(ar2[4]))
   )
-
 
   footnote_text <- paste0(
-    "This table reports firm-year panel regressions where the dependent variable is the transparency score. ",
-    "The specification includes indicators for bottom/top decile membership (q10/q90), a linear time trend, ",
-    "and interactions between the time trend and q10/q90. Model (1) includes sector and country fixed effects; ",
-    "Model (2) includes firm fixed effects. Standard errors are clustered at the firm level."
-  )
+    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The specification includes top-10\\% and bottom-10\\% dummies of the lagged ESG rating from MSCI, a linear time trend, and interactions between the time trend and the group dummies as regressors. Deciles are calculated on a yearly basis. Model~(1) includes no additional controls or fixed effects. Models~(2)-(4) additionally include lagged market capitalization and the lagged ESG controversies score as continous controls. Model~(3) includes sector fixed effects. Model~(4) incudes firm fixed effects. Standard errors are clustered at the firm level and reported in parenthesese. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression."
+    )
 
   ltx <- c(
     "\\begin{table}[!htbp]",
@@ -879,9 +914,9 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "\\centering",
     "\\begin{threeparttable}",
     "",
-    "\\begin{tabularx}{\\textwidth}{ p{5cm} cc }",
+    "\\begin{tabularx}{\\textwidth}{ p{5cm} cccc }",
     "\\toprule",
-    " & Sector+Country FE & Firm FE \\\\",
+    " & (1) & (2) & (3) & (4) \\\\",
     "\\midrule",
     coef_block,
     fe_rows,
@@ -890,7 +925,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "",
     "\\begin{tablenotes}[para, flushleft]",
     "\\scriptsize",
-    "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont",
+    "\\fontsize{7pt}{7pt}\\linespread{1.2}\\selectfont",
     sprintf("\\item \\textbf{Notes:} %s", footnote_text),
     "\\end{tablenotes}",
     "\\end{threeparttable}",
