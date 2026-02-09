@@ -125,7 +125,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             firm, year, primary_sics_sector, transp,
             mkcapUSD_lagged, salesUSD,
             ref_esg_score, ref_esg_controversies_score_lagged,
-            msci_company_rating_lagged
+            msci_company_rating_lagged,
+            reprisk_rating_num_lagged
         ) |>
         mutate(
             ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
@@ -159,14 +160,29 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
     df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
     df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
+    df_reprisk_rating_plot <- make_grouped_df(df2, "reprisk_rating_num_lagged")
 }
 ```
-```{r}
-# After violin plot data creation
-cat("Violin data - controversy score summary:\n")
-summary(df_controversies_plot$ref_esg_controversies_score_n)
-table(df_controversies_plot$group)
-```
+
+<!-- ```{r} -->
+<!-- # After violin plot data creation -->
+<!-- cat("Violin data - reprisk rating summary:\n") -->
+<!-- summary(df_reprisk_rating_plot$reprisk_rating_num_lagged) -->
+<!-- table(df_reprisk_rating_plot$group) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # Quick correlation check between ESG metrics -->
+<!-- df2 |> -->
+<!--     select( -->
+<!--         msci_company_rating_n, -->
+<!--         reprisk_rating_num_lagged, -->
+<!--         ref_esg_controversies_score_n -->
+<!--     ) |> -->
+<!--     cor(use = "pairwise.complete.obs") -->
+<!-- ``` -->
+
 
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
@@ -198,7 +214,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
     # Function to plot violins
     make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
-        df <- df |> drop_na(transp)
+        df <- df |> drop_na(transp, group) |> 
+        filter(group %in% c("Bottom 10%", "Middle 80%", "Top 10%"))
 
         ggplot(df, aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
             geom_violin(aes(fill = group), alpha = 0.5) +
@@ -240,10 +257,11 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     violin_mkcap <- make_violin_plot(df_mkcap_plot, "Market capitalization")
     # violin_sales <- make_violin_plot(df_sales_plot, "Revenue")
     # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
-    violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
+    # violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
     violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
+    violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
 
-    p <- violin_mkcap + violin_msci_rating + violin_controversies +
+    p <- violin_mkcap + violin_msci_rating + violin_reprisk_rating +
         plot_layout(ncol = 3) +
 
         plot_annotation(
@@ -286,31 +304,39 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
         msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map),
         mkcapUSD_log = log(mkcapUSD_lagged)
       ) |> 
-      select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |> 
+      select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n, reprisk_rating_num_lagged) |> 
       group_by(year) |> 
       mutate(
         # market cap dummies
         q10_mkcap = mkcapUSD_log <= stats::quantile(mkcapUSD_log, 0.10, na.rm = TRUE),
         q90_mkcap = mkcapUSD_log >= stats::quantile(mkcapUSD_log, 0.90, na.rm = TRUE),
     
-        # rating dummies (note: your mapping defines higher number = better rating)
+        # rating dummies
         q10_rating = msci_company_rating_n <= stats::quantile(msci_company_rating_n, 0.10, na.rm = TRUE),
         q90_rating = msci_company_rating_n >= stats::quantile(msci_company_rating_n, 0.90, na.rm = TRUE),
     
-        # controversies dummies (your mapping is reverse-coded so higher number = worse controversies)
+        # controversies dummies
         q10_contr = ref_esg_contr_n <= stats::quantile(ref_esg_contr_n, 0.10, na.rm = TRUE),
-        q90_contr = ref_esg_contr_n >= stats::quantile(ref_esg_contr_n, 0.90, na.rm = TRUE)
+        q90_contr = ref_esg_contr_n >= stats::quantile(ref_esg_contr_n, 0.90, na.rm = TRUE),
+        
+        # reprisk rating dummies
+        q10_reprisk_rating = reprisk_rating_num_lagged <= stats::quantile(reprisk_rating_num_lagged, 0.10, na.rm = TRUE),
+        q90_reprisk_rating = reprisk_rating_num_lagged >= stats::quantile(reprisk_rating_num_lagged, 0.90, na.rm = TRUE)
+        
       ) |> 
       ungroup()
 }
 ```
-```{r}
 
-# After regression data creation  
-cat("Regression data - controversy score summary:\n")
-summary(df2_enriched$ref_esg_contr_n)
-table(df2_enriched$q10_contr, df2_enriched$q90_contr)
-```
+
+<!-- ```{r} -->
+
+<!-- # After regression data creation   -->
+<!-- cat("Regression data - reprisk rating summary:\n") -->
+<!-- summary(df2_enriched$reprisk_rating_num_lagged) -->
+<!-- table(df2_enriched$q10_reprisk_rating, df2_enriched$q90_reprisk_rating) -->
+<!-- ``` -->
+
 
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
@@ -322,7 +348,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     main,
     "mkcap"  = c("q10_mkcap",  "q90_mkcap"),
     "rating" = c("q10_rating", "q90_rating"),
-    "contr"  = c("q10_contr",  "q90_contr")
+    #"contr"  = c("q10_contr",  "q90_contr")
+    "reprisk" = c("q10_reprisk_rating", "q90_reprisk_rating")
   )
 
   # build RHS
@@ -365,7 +392,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     data = df2_enriched,
     main = "mkcap",
     controls = c("msci_company_rating_n", "ref_esg_contr_n"),
-    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    stars = c("***" = .001, "**" = .01, "*" = 0.05),
     coef_map = c(
       "(Intercept)" = "Constant",
       "q90_mkcapTRUE" = "Top-10\\% market capitalization",
@@ -378,7 +405,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     data = df2_enriched,
     main = "rating",
     controls = c("mkcapUSD_log", "ref_esg_contr_n"),
-    stars = c("***" = .01, "**" = .05, "*" = 0.1),
+    stars = c("***" = .001, "**" = .01, "*" = 0.05),
     coef_map = c(
       "(Intercept)" = "Constant",
       "q90_ratingTRUE" = "Top-10\\% ESG rating",
@@ -386,16 +413,16 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     )
   )
   
-  # Panel C: controversies dummies; controls are market cap + rating
+  # Panel C: reprisk dummies; controls are market cap + rating
   panel_c_tex <- make_panel_tex(
     data = df2_enriched,
-    main = "contr",
+    main = "reprisk",
     controls = c("mkcapUSD_log", "msci_company_rating_n"),
     stars = c("***" = .001, "**" = .01, "*" = 0.05),
     coef_map = c(
       "(Intercept)" = "Constant",
-      "q90_contrTRUE" = "Top-10\\% ESG controversies score",
-      "q10_contrTRUE" = "Bottom-10\\% ESG controversies score"
+      "q90_reprisk_ratingTRUE" = "Top-10\\% RepRisk Rating",
+      "q10_reprisk_ratingTRUE" = "Bottom-10\\% RepRisk Rating"
     )
   )
 
@@ -442,7 +469,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   )
 
 
-  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors. Deciles are calculated on a yearly basis. Panel A reports results using lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI, and panel C uses the lagged ESG controversies score from Refinitiv. Model~(1) includes only the focal determinant dummies and no additional controls. Models~(2)–(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression.We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For example, according to Model (1), companies in the top-10\\% versus bottom-10\\% of ESG ratings have transparency scores that are approximately 22\\% higher, calculated by comparing fitted transparency levels from the regression model. For companies in the bottom decile of ESG controversies, we find lower levels of transparency, potentially indicating the disciplining effect of external pressure"
+  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors. Deciles are calculated on a yearly basis. Panel A reports results using lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI, and panel C uses the lagged RepRisk rating. Model~(1) includes only the focal determinant dummies and no additional controls. Models~(2)–(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression.We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For example, according to Model (1), companies in the top-10\\% versus bottom-10\\% of ESG ratings have transparency scores that are approximately 22\\% higher, calculated by comparing fitted transparency levels from the regression model."
 
   ltx <- c(
     "\\begin{table}[!htbp]",
@@ -480,7 +507,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "\\end{tabularx}", "", "\\vspace{1em}",
 
     # --- Panel C
-    "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by ESG controversies}} \\\\",
+    "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by RepRisk rating}} \\\\",
     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }",
     "\\toprule",
     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\",
@@ -775,7 +802,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   # ----------------------------
-  # options: "rating", "mkcap", "contr"
+  # options: "rating", "mkcap", "contr", "reprisk"
   det_choice <- "rating"
   # ----------------------------
 
@@ -790,19 +817,21 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
       msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map),
       ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map)
     ) |>
-    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |>
+    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n, reprisk_rating_num_lagged) |>
     dplyr::mutate(
       t = year - min(year, na.rm = TRUE)
     )
   
-  controls <- c("mkcapUSD_log", "ref_esg_contr_n")
+  # pick suitable controls
+  controls <- c("mkcapUSD_log", "reprisk_rating_num_lagged")
 
   # pick variable used to form q10/q90 groups
   det_var <- switch(
     det_choice,
-    "rating" = "msci_company_rating_n",
-    "mkcap"  = "mkcapUSD_log",
-    "contr"  = "ref_esg_contr_n"
+    "rating"  = "msci_company_rating_n",
+    "mkcap"   = "mkcapUSD_log",
+    "contr"   = "ref_esg_contr_n",
+    "reprisk" = "reprisk_rating_num_lagged"
   )
 
   # within-year q10/q90 dummies for chosen determinant
@@ -825,21 +854,21 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   
   # (2) add controls
   m2 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged,
     data = df_trend,
     vcov = ~ firm
   )
   
   # (3) add sector FE
   m3 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | sector,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged | sector,
     data = df_trend,
     vcov = ~ firm
   )
   
   # (4) add firm FE
   m4 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | firm,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged | firm,
     data = df_trend,
     vcov = ~ firm
   )
@@ -885,9 +914,10 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   det_label <- switch(
     det_choice,
-    "rating" = "ESG rating",
-    "mkcap"  = "market capitalization",
-    "contr"  = "ESG controversies"
+    "rating"  = "ESG rating",
+    "mkcap"   = "market capitalization",
+    "contr"   = "ESG controversies",
+    "reprisk" = "RepRisk rating"
   )
 
   fe_rows <- c(
@@ -904,7 +934,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   )
 
   footnote_text <- paste0(
-    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The specification includes top-10\\% and bottom-10\\% dummies of the lagged ESG rating from MSCI, a linear time trend, and interactions between the time trend and the group dummies as regressors. Deciles are calculated on a yearly basis. Model~(1) includes no additional controls or fixed effects. Models~(2)-(4) additionally include lagged market capitalization and the lagged ESG controversies score as continous controls. Model~(3) includes sector fixed effects. Model~(4) incudes firm fixed effects. Standard errors are clustered at the firm level and reported in parenthesese. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression."
+    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The specification includes top-10\\% and bottom-10\\% dummies of the lagged ESG rating from MSCI, a linear time trend, and interactions between the time trend and the group dummies as regressors. Deciles are calculated on a yearly basis. Model~(1) includes no additional controls or fixed effects. Models~(2)-(4) additionally include lagged market capitalization and the lagged RepRisk rating as continous controls. Model~(3) includes sector fixed effects. Model~(4) incudes firm fixed effects. Standard errors are clustered at the firm level and reported in parenthesese. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression."
     )
 
   ltx <- c(
