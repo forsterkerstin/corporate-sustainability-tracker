@@ -1628,7 +1628,7 @@ p_hq <- df |>
   scale_fill_manual(values = colors) +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
   labs(x = NULL, y = NULL, fill = "ESRS Topic") +
-  ggtitle("High quality firm-years") +
+  ggtitle("High quality company-years") +
   theme(
     plot.title = element_text(size = 13),
     text = element_text(size = 11),
@@ -1897,7 +1897,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             firm, year, primary_sics_sector, transp,
             mkcapUSD_lagged, salesUSD,
             ref_esg_score, ref_esg_controversies_score_lagged,
-            msci_company_rating_lagged
+            msci_company_rating_lagged,
+            reprisk_rating_num_lagged
         ) |>
         dplyr::mutate(
             ref_esg_score_n = dplyr::recode(ref_esg_score, !!!esg_rating_map),
@@ -1913,6 +1914,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                 q10 = stats::quantile(.data[[quant_col]], 0.1, na.rm = TRUE),
                 q90 = stats::quantile(.data[[quant_col]], 0.9, na.rm = TRUE),
                 group = dplyr::case_when(
+                    is.na(.data[[quant_col]]) ~ NA_character_,
                     .data[[quant_col]] >= q90 ~ "Top 10%",
                     .data[[quant_col]] <= q10 ~ "Bottom 10%",
                     TRUE ~ "Middle 80%"
@@ -1929,6 +1931,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
     df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
     df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
+    # df_reprisk_rating_plot <- make_grouped_df(df2, "reprisk_rating_num_lagged")
 
     # Function  to compare means
     compare_means <- function(df, group_var = "group", target_group = "Top 10%", reference_group = "Middle 80%") {
@@ -1952,12 +1955,12 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             TRUE ~ ""
         )
 
-        sprintf("diff = %.1f p.p.%s", abs(ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
+        sprintf("diff = %.1f p.p.%s", (ttest$estimate[1] - ttest$estimate[2]) * 100, stars)
     }
 
     # Function to plot violins
     make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
-        df <- df |> tidyr::drop_na(transp)
+        df <- df |> tidyr::drop_na(transp, group)
 
         ggplot2::ggplot(df, ggplot2::aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
             ggplot2::geom_violin(ggplot2::aes(fill = group), alpha = 0.5) +
@@ -1997,7 +2000,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
     violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
     violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
-
+    # violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
+    
     p <- violin_mkcap + violin_msci_rating + violin_controversies +
         patchwork::plot_layout(ncol = 3) +
         patchwork::plot_annotation(tag_levels = "a") &
@@ -2727,6 +2731,244 @@ ggsave(
 )
 
 knitr::include_graphics(here("fig/fig-gov-impacts-high-quality-firmyears.pdf"))
+
+```
+
+### Transparency based on disclosure-detections
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+
+std_levels <- c(
+    "Climate change",
+    "Pollution",
+    "Water",
+    "Biodiversity",
+    "Circular economy",
+    "Own workforce",
+    "Consumers",
+    "Governance",
+    "Business conduct"
+)
+
+colors <- c(
+    "Climate change"   = "#1C4A29",
+    "Pollution"        = "#2E6F40",
+    "Water"            = "#419759",
+    "Biodiversity"     = "#55C173",
+    "Circular economy" = "#6AEC8E",
+    "Own workforce"    = "#6F2E5D",
+    "Consumers"        = "#D661B5",
+    "Governance"       = "#485DA5",
+    "Business conduct" = "#6D81CD"
+)
+
+df <- df |> mutate(standard_topic = ifelse(standard_topic == "General", "Governance", standard_topic))
+
+# create detection flag: TRUE if model output has non-null "value", 0 otherwise
+df <- df |>
+  dplyr::mutate(
+    detection = !is.na(model_output) &
+      !stringr::str_detect(model_output, "'value':\\s*None(?!')")
+  )
+
+# helper: compute avg # ESG indicators detected per year and ESRS topic
+calc_transparency_bars <- function(data) {
+  data |>
+    dplyr::mutate(std = factor(standard_topic, levels = std_levels)) |>
+    dplyr::group_by(firm, year, std) |>
+    dplyr::summarise(count_detected = sum(detection), .groups = "drop") |>
+    dplyr::group_by(year, std) |>
+    dplyr::summarise(avg_detected = mean(count_detected), .groups = "drop")
+}
+
+p_all <- df |>
+  calc_transparency_bars() |>
+  ggplot(aes(x = factor(year), y = avg_detected, fill = std)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_discrete(breaks = as.character(seq(2015, 2023, by = 2))) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 220)) +
+  labs(x = NULL, y = "# ESG indicators", fill = "ESRS Topic") +
+  theme(
+    text = element_text(size = 11),
+    axis.line = element_line(linewidth = 0.5),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.ticks = element_line(),
+    legend.position = "right",
+    legend.direction = "vertical",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+
+ggsave(
+  here("fig", "fig-transparency_trend_detection.pdf"),
+  p_all,
+  width = 6, height = 4, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-transparency_trend_detection.pdf"))
+
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 6
+
+shapes_line <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 22,
+    "Biodiversity"     = 4,
+    "Circular economy" = 23,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+
+shapes_scatter <- c(
+    "Climate change"   = 16,
+    "Pollution"        = 17,
+    "Water"            = 0,
+    "Biodiversity"     = 4,
+    "Circular economy" = 5,
+    "Own workforce"    = 16,
+    "Consumers"        = 17,
+    "Governance"       = 1,
+    "Business conduct" = 17
+)
+
+# aggregate benchmark transparency for time series plot (p2)
+overall_p2 <-
+  df |>
+  dplyr::group_by(firm, year) |>
+  dplyr::summarize(transp = mean(detection), .groups = "drop") |>
+  dplyr::group_by(year) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::mutate(
+    label = "Overall",
+    group = "Overall"
+  )
+
+# p2: transparency time series by ESRS topic
+p2 <-
+  df |>
+  dplyr::group_by(firm, year, topic, standard, standard_topic) |>
+  dplyr::summarize(transp = mean(detection), .groups = "drop") |>
+  dplyr::group_by(year, topic, standard, standard_topic) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::mutate(
+    label = paste0(standard_topic),
+    group = ifelse(topic == "env", "Environmental", "Social and Governance")
+  ) |>
+  dplyr::bind_rows(overall_p2) |>
+  dplyr::mutate(
+    label = factor(label, levels = c("Overall", std_levels))
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(
+    x = factor(year),
+    y = transp,
+    color = label,
+    shape = label,
+    group = label
+  )) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point(size = 2, fill = "white", stroke = 1) +
+  ggplot2::scale_y_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+  ggplot2::scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+  ggplot2::scale_shape_manual(values = c("Overall" = 16, shapes_line)) +
+  ggplot2::labs(x = NULL, y = "Transparency score", color = "ESRS Topic", shape = "ESRS Topic") +
+  ggplot2::theme(
+    text = ggplot2::element_text(color = "black", size = 10),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.border = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    axis.line = ggplot2::element_line(color = "black"),
+    axis.ticks = ggplot2::element_line(color = "black"),
+    legend.key.height = grid::unit(10, "pt"),
+    legend.position = "left",
+    legend.box.margin = ggplot2::margin(r = -120),
+    axis.title.y = ggplot2::element_text(vjust = -55)
+  )
+
+# aggregate benchmark for sectoral scatter plot (p3)
+overall_p3 <-
+  df |>
+  dplyr::group_by(firm, year) |>
+  dplyr::summarize(transp = mean(detection), .groups = "drop") |>
+  add_all_firm_data() |>
+  dplyr::group_by(primary_sics_sector) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::filter(!is.na(primary_sics_sector)) |>
+  dplyr::mutate(std = "Overall")
+
+sector_order <- overall_p3 |>
+  dplyr::arrange(transp) |>
+  dplyr::pull(primary_sics_sector)
+
+# p3: sectoral scatter
+p3 <-
+  df |>
+  dplyr::mutate(std = paste0(standard_topic)) |>
+  dplyr::group_by(firm, year, topic, std, standard) |>
+  dplyr::summarize(transp = mean(detection), .groups = "drop") |>
+  add_all_firm_data() |>
+  dplyr::group_by(primary_sics_sector, topic, std, standard) |>
+  dplyr::summarize(transp = mean(transp), .groups = "drop") |>
+  dplyr::filter(!is.na(primary_sics_sector)) |>
+  dplyr::bind_rows(overall_p3) |>
+  dplyr::mutate(
+    primary_sics_sector = factor(primary_sics_sector, levels = sector_order),
+    std = factor(std, levels = c("Overall", std_levels))
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(
+    x = transp,
+    y = primary_sics_sector,
+    color = std,
+    shape = std
+  )) +
+  ggplot2::geom_point(size = 2, stroke = 1) +
+  ggplot2::scale_x_continuous(labels = scales::percent, limits = c(0, 0.6), expand = c(0, 0)) +
+  ggplot2::scale_color_manual(values = c("Overall" = "darkgrey", colors)) +
+  ggplot2::scale_shape_manual(values = c("Overall" = 16, shapes_scatter)) +
+  ggplot2::labs(x = "Transparency score", y = "", shape = "ESRS Topic", color = "ESRS Topic") +
+  ggplot2::theme(
+    text = ggplot2::element_text(color = "black", size = 10),
+    panel.border = ggplot2::element_blank(),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    axis.line = ggplot2::element_line(color = "black"),
+    axis.ticks = ggplot2::element_line(color = "black"),
+    legend.position = "none"
+  )
+
+# combine + export
+p3 <- p3 + ggplot2::guides(color = "none", shape = "none")
+
+pfinal <- p2 / p3 +
+  patchwork::plot_layout(
+    heights = c(1, 1.4),
+    guides = "collect"
+  ) +
+  patchwork::plot_annotation(tag_levels = "a") &
+  ggplot2::theme(
+    plot.tag = ggplot2::element_text(face = "bold"),
+    plot.caption = ggtext::element_textbox_simple(hjust = 0),
+    plot.caption.position = "plot",
+    legend.position = "right",
+    legend.justification = "center"
+  )
+
+ggsave(
+  here("fig", "fig-transparency_detection.pdf"),
+  pfinal,
+  width = 8, height = 6, dpi = 400, units = "in", device = "pdf"
+)
+
+knitr::include_graphics(here("fig/fig-transparency_detection.pdf"))
 
 ```
 

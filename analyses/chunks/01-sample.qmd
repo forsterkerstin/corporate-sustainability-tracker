@@ -32,8 +32,8 @@ plot_data$report_type <- factor(plot_data$report_type, levels = c("Annual Report
 plot_overtime <- ggplot(plot_data, aes(x = factor(year), y = count, fill = report_type)) +
   geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
   scale_fill_manual(values = c(
-    "Sustainability Report" = "#9FE2BF",
-    "Annual Report" = "#FF7F50"
+    "Sustainability Report" = "#72B7B2",
+    "Annual Report" = "#4C78A8"
   )) +
   scale_y_continuous(limits = c(0, 1100), expand = c(0, 0)) +
   labs(y = "# Reports", x = "", fill = "Report type") +

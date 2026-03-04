@@ -214,8 +214,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
     # Function to plot violins
     make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
-        df <- df |> drop_na(transp, group) |> 
-        filter(group %in% c("Bottom 10%", "Middle 80%", "Top 10%"))
+        df <- df |> drop_na(transp, group)
 
         ggplot(df, aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
             geom_violin(aes(fill = group), alpha = 0.5) +
@@ -257,11 +256,11 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     violin_mkcap <- make_violin_plot(df_mkcap_plot, "Market capitalization")
     # violin_sales <- make_violin_plot(df_sales_plot, "Revenue")
     # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
-    # violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
+    violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
     violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
-    violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
+    # violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
 
-    p <- violin_mkcap + violin_msci_rating + violin_reprisk_rating +
+    p <- violin_mkcap + violin_msci_rating + violin_controversies +
         plot_layout(ncol = 3) +
 
         plot_annotation(
@@ -348,8 +347,8 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     main,
     "mkcap"  = c("q10_mkcap",  "q90_mkcap"),
     "rating" = c("q10_rating", "q90_rating"),
-    #"contr"  = c("q10_contr",  "q90_contr")
-    "reprisk" = c("q10_reprisk_rating", "q90_reprisk_rating")
+    "contr"  = c("q10_contr",  "q90_contr"),
+    #"reprisk" = c("q10_reprisk_rating", "q90_reprisk_rating")
   )
 
   # build RHS
@@ -387,7 +386,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     as.character()
   }
 
-  # Panel A: market cap dummies; controls are rating + controversies
+  # Panel A: market cap dummies; controls are rating + ref controversy score
   panel_a_tex <- make_panel_tex(
     data = df2_enriched,
     main = "mkcap",
@@ -400,7 +399,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     )
   )
   
-  # Panel B: rating dummies; controls are market cap + controversies
+  # Panel B: rating dummies; controls are market cap + ref controversy score
   panel_b_tex <- make_panel_tex(
     data = df2_enriched,
     main = "rating",
@@ -413,16 +412,16 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     )
   )
   
-  # Panel C: reprisk dummies; controls are market cap + rating
+  # Panel C: ref esg controversy dummies; controls are market cap + rating
   panel_c_tex <- make_panel_tex(
     data = df2_enriched,
-    main = "reprisk",
+    main = "contr",
     controls = c("mkcapUSD_log", "msci_company_rating_n"),
     stars = c("***" = .001, "**" = .01, "*" = 0.05),
     coef_map = c(
       "(Intercept)" = "Constant",
-      "q90_reprisk_ratingTRUE" = "Top-10\\% RepRisk Rating",
-      "q10_reprisk_ratingTRUE" = "Bottom-10\\% RepRisk Rating"
+      "q90_contrTRUE" = "Top-10\\% ESG controversies score",
+      "q10_contrTRUE" = "Bottom-10\\% ESG controversies score"
     )
   )
 
@@ -469,7 +468,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   )
 
 
-  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors. Deciles are calculated on a yearly basis. Panel A reports results using lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI, and panel C uses the lagged RepRisk rating. Model~(1) includes only the focal determinant dummies and no additional controls. Models~(2)–(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression.We find that companies in the top-10\\% (bottom 10\\%) of market capitalization and ESG rating have significantly higher (lower) levels of transparency than the average company. For example, according to Model (1), companies in the top-10\\% versus bottom-10\\% of ESG ratings have transparency scores that are approximately 22\\% higher, calculated by comparing fitted transparency levels from the regression model."
+  footnote_text <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel uses top-10\\% and bottom-10\\% dummies of the focal determinant as regressors. Deciles are calculated on a yearly basis. Panel A reports results using lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI, and panel C uses the lagged ESG controversies score from Refinitiv (inverse-coded, i.e., higher scores indicate higher controversy exposure). Model~(1) includes only the focal determinant dummies and no additional controls. Models~(2)–(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on ordinary least squares (OLS) regression. We find that companies in the top-10\\% (bottom 10\\%) of market capitalization, ESG rating, and controversies score have significantly higher (lower) levels of transparency than the average company. For example, according to Model (1), companies in the top-10\\% versus bottom-10\\% of ESG ratings have transparency scores that are approximately 22\\% higher, calculated by comparing fitted transparency levels from the regression model."
 
   ltx <- c(
     "\\begin{table}[!htbp]",
@@ -507,7 +506,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     "\\end{tabularx}", "", "\\vspace{1em}",
 
     # --- Panel C
-    "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by RepRisk rating}} \\\\",
+    "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by ESG controversies score}} \\\\",
     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }",
     "\\toprule",
     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\",
@@ -533,6 +532,166 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   writeLines(paste(ltx, collapse = "\n"), "tab-regression_transp.tex")
 }
 ```
+
+<!-- ```{r panel regression continuous} -->
+<!-- if (file.exists(file.path(datasets_dir, "firm_data.csv"))) { -->
+
+<!--   make_panel_cont_tex <- function(data, main_var, main_label, controls, stars) { -->
+
+<!--     rhs_main_only <- main_var -->
+<!--     rhs_full      <- paste(c(main_var, controls), collapse = " + ") -->
+
+<!--     f0 <- stats::as.formula(paste0("transp ~ ", rhs_main_only)) -->
+<!--     f1 <- stats::as.formula(paste0("transp ~ ", rhs_full)) -->
+<!--     f2 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | year")) -->
+<!--     f3 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector")) -->
+<!--     f4 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year")) -->
+<!--     f5 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year + firm")) -->
+
+<!--     models <- list( -->
+<!--       fixest::feols(f0, data = data, vcov = ~firm), -->
+<!--       fixest::feols(f1, data = data, vcov = ~firm), -->
+<!--       fixest::feols(f2, data = data, vcov = ~firm), -->
+<!--       fixest::feols(f3, data = data, vcov = ~firm), -->
+<!--       fixest::feols(f4, data = data, vcov = ~firm), -->
+<!--       fixest::feols(f5, data = data, vcov = ~firm) -->
+<!--     ) -->
+
+<!--     omit_regex <- paste0("^(", paste(controls, collapse = "|"), ")$") -->
+
+<!--     coef_map <- c( -->
+<!--       "(Intercept)" = "Constant", -->
+<!--       setNames(main_label, main_var) -->
+<!--     ) -->
+
+<!--     modelsummary::modelsummary( -->
+<!--       models, -->
+<!--       stars = stars, -->
+<!--       coef_map = coef_map, -->
+<!--       coef_omit = omit_regex, -->
+<!--       gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))", -->
+<!--       output = "latex", -->
+<!--       escape = FALSE -->
+<!--     ) |> -->
+<!--       as.character() -->
+<!--   } -->
+
+<!--   stars_def <- c("***" = .001, "**" = .01, "*" = 0.05) -->
+
+<!--   panel_a_cont <- make_panel_cont_tex( -->
+<!--     data = df2_enriched, -->
+<!--     main_var = "mkcapUSD_log", -->
+<!--     main_label = "Log market capitalization", -->
+<!--     controls = c("msci_company_rating_n", "reprisk_rating_num_lagged"), -->
+<!--     stars = stars_def -->
+<!--   ) -->
+
+<!--   panel_b_cont <- make_panel_cont_tex( -->
+<!--     data = df2_enriched, -->
+<!--     main_var = "msci_company_rating_n", -->
+<!--     main_label = "ESG rating", -->
+<!--     controls = c("mkcapUSD_log", "reprisk_rating_num_lagged"), -->
+<!--     stars = stars_def -->
+<!--   ) -->
+
+<!--   panel_c_cont <- make_panel_cont_tex( -->
+<!--     data = df2_enriched, -->
+<!--     main_var = "reprisk_rating_num_lagged", -->
+<!--     main_label = "RepRisk Rating", -->
+<!--     controls = c("mkcapUSD_log", "msci_company_rating_n"), -->
+<!--     stars = stars_def -->
+<!--   ) -->
+
+<!--   A_cont <- extract_blocks(panel_a_cont) -->
+<!--   B_cont <- extract_blocks(panel_b_cont) -->
+<!--   C_cont <- extract_blocks(panel_c_cont) -->
+
+<!--   gofA_cont <- A_cont$gof_lines -->
+<!--   gofA_cont <- gsub("Num\\.Obs\\.", "$N$", gofA_cont) -->
+<!--   gofA_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofA_cont) -->
+
+<!--   gofB_cont <- B_cont$gof_lines -->
+<!--   gofB_cont <- gsub("Num\\.Obs\\.", "$N$", gofB_cont) -->
+<!--   gofB_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofB_cont) -->
+
+<!--   gofC_cont <- C_cont$gof_lines -->
+<!--   gofC_cont <- gsub("Num\\.Obs\\.", "$N$", gofC_cont) -->
+<!--   gofC_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofC_cont) -->
+
+<!--   # FE rows (same structure as dummy version) -->
+<!--   fe_rows_cont <- c( -->
+<!--     "Controls         & No & Yes & Yes & Yes & Yes & Yes \\\\", -->
+<!--     "Year FE          & No & No  & Yes & No  & --- & --- \\\\", -->
+<!--     "Sector FE        & No & No  & No  & Yes & --- & --- \\\\", -->
+<!--     "Year $\\times$ Sector FE & No & No & No & No & Yes & Yes \\\\", -->
+<!--     "Company FE       & No & No  & No  & No & No  & Yes \\\\" -->
+<!--   ) -->
+
+<!--   footnote_cont <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel enters the focal determinant as a continuous regressor. Panel A reports results using log lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI (coded 1--7), and Panel C uses the lagged RepRisk Rating (numeric). Model~(1) includes only the focal determinant and no additional controls. Models~(2)--(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression." -->
+
+<!--   ltx_cont <- c( -->
+<!--     "\\begin{table}[!htbp]", -->
+<!--     "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}", -->
+<!--     "\\caption{\\label{tab:regression-transp-continuous}Determinants of transparency (continuous regressors)}", -->
+<!--     "\\centering", -->
+<!--     "\\begin{threeparttable}", -->
+<!--     "", -->
+<!--     # --- Panel A -->
+<!--     "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\", -->
+<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
+<!--     "\\toprule", -->
+<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
+<!--     "\\midrule", -->
+<!--     A_cont$coef_block, -->
+<!--     "\\midrule", -->
+<!--     fe_rows_cont, -->
+<!--     "\\midrule", -->
+<!--     gofA_cont, -->
+<!--     "\\bottomrule", -->
+<!--     "\\end{tabularx}", "", "\\vspace{1em}", -->
+
+<!--     # --- Panel B -->
+<!--     "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\", -->
+<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
+<!--     "\\toprule", -->
+<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
+<!--     "\\midrule", -->
+<!--     B_cont$coef_block, -->
+<!--     "\\midrule", -->
+<!--     fe_rows_cont, -->
+<!--     "\\midrule", -->
+<!--     gofB_cont, -->
+<!--     "\\bottomrule", -->
+<!--     "\\end{tabularx}", "", "\\vspace{1em}", -->
+
+<!--     # --- Panel C -->
+<!--     "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by RepRisk Rating}} \\\\", -->
+<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
+<!--     "\\toprule", -->
+<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
+<!--     "\\midrule", -->
+<!--     C_cont$coef_block, -->
+<!--     "\\midrule", -->
+<!--     fe_rows_cont, -->
+<!--     "\\midrule", -->
+<!--     gofC_cont, -->
+<!--     "\\bottomrule", -->
+<!--     "\\end{tabularx}", "", -->
+
+<!--     # Notes -->
+<!--     "\\begin{tablenotes}[para, flushleft]", -->
+<!--     "\\scriptsize", -->
+<!--     "\\fontsize{7pt}{7pt}\\linespread{1.2}\\selectfont", -->
+<!--     sprintf("\\item \\textbf{Notes:} %s", footnote_cont), -->
+<!--     "\\end{tablenotes}", -->
+<!--     "\\end{threeparttable}", -->
+<!--     "\\end{table}" -->
+<!--   ) -->
+
+<!--   writeLines(paste(ltx_cont, collapse = "\n"), "tab-regression_transp_continuous.tex") -->
+<!-- } -->
+<!-- ``` -->
+
 
 <!-- ```{r panel regression time trend} -->
 <!-- if (file.exists(file.path(datasets_dir, "firm_data.csv"))) { -->
@@ -823,7 +982,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     )
   
   # pick suitable controls
-  controls <- c("mkcapUSD_log", "reprisk_rating_num_lagged")
+  controls <- c("mkcapUSD_log", "ref_esg_contr_n")
 
   # pick variable used to form q10/q90 groups
   det_var <- switch(
@@ -854,21 +1013,21 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   
   # (2) add controls
   m2 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n,
     data = df_trend,
     vcov = ~ firm
   )
   
   # (3) add sector FE
   m3 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged | sector,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | sector,
     data = df_trend,
     vcov = ~ firm
   )
   
   # (4) add firm FE
   m4 <- fixest::feols(
-    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + reprisk_rating_num_lagged | firm,
+    transp ~ q10 + q90 + t + q10:t + q90:t + mkcapUSD_log + ref_esg_contr_n | firm,
     data = df_trend,
     vcov = ~ firm
   )
@@ -916,7 +1075,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     det_choice,
     "rating"  = "ESG rating",
     "mkcap"   = "market capitalization",
-    "contr"   = "ESG controversies",
+    "contr"   = "ESG controversies score",
     "reprisk" = "RepRisk rating"
   )
 
@@ -934,7 +1093,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
   )
 
   footnote_text <- paste0(
-    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The specification includes top-10\\% and bottom-10\\% dummies of the lagged ESG rating from MSCI, a linear time trend, and interactions between the time trend and the group dummies as regressors. Deciles are calculated on a yearly basis. Model~(1) includes no additional controls or fixed effects. Models~(2)-(4) additionally include lagged market capitalization and the lagged RepRisk rating as continous controls. Model~(3) includes sector fixed effects. Model~(4) incudes firm fixed effects. Standard errors are clustered at the firm level and reported in parenthesese. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression."
+    "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. The specification includes top-10\\% and bottom-10\\% dummies of the lagged ESG rating from MSCI, a linear time trend, and interactions between the time trend and the group dummies as regressors. Deciles are calculated on a yearly basis. Model~(1) includes no additional controls or fixed effects. Models~(2)-(4) additionally include lagged market capitalization and the lagged ESG controversies score from Refinitv as continuous controls. Model~(3) includes sector fixed effects. Model~(4) includes firm fixed effects. Standard errors are clustered at the firm level and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on ordinary least squares (OLS) regression."
     )
 
   ltx <- c(

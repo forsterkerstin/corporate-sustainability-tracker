@@ -1228,8 +1228,6 @@ if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
     scope3_id_list <- c(
         "5f8c310c-e820-4b44-ba6b-99d95c0d0d5c", # Gross Scope 3 greenhouse gas emissions
         "341022cd-222c-4bd5-83e4-6c0530c9557e", # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
-        "608a6b9f-55dc-4eda-a061-8085bc748339", # Gross Scope 3 greenhouse gas emissions
-        "f2d2c579-0b6b-4ab7-8cdf-c916a6680717", # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
         "04b7d87f-db3c-4975-87f3-47520cda5b03", # Gross Scope 3 greenhouse gas emissions: Category 5 Waste generated in operations
         "961dadd9-4283-4f39-918e-81f25cf142a7", # Gross Scope 3 greenhouse gas emissions: Category 11 Use of sold products
         "fd40534f-e50f-4837-9e57-81cdd9647b20", # Gross Scope 3 greenhouse gas emissions: Category 10 Processing of sold products
@@ -1247,12 +1245,10 @@ if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
         "2a8f4e1c-84d6-4b4e-92d6-0f7b6d1c8d7e", # Gross Scope 3 greenhouse gas emissions: Category 1 Purchased goods and services
         "15feb559-220c-4210-b880-e0216693b961", # Gross Scope 3 greenhouse gas emissions: Category 2 Capital goods
         "024a7225-7899-4ea1-b830-c21233ad1991", # Gross Scope 3 greenhouse gas emissions: Category 1.1 Cloud computing and data centre services
-        "d8370bd2-00a1-4475-8b48-f88f5aab12e3", # Gross Scope 3 greenhouse gas emissions
         "caca2630-ddc3-43fe-9c41-1d3a206be4e4", # Gross Scope 3 greenhouse gas emissions: Own operations
         "375c568c-e22e-44a8-890b-bb5a59bbace6", # Gross Scope 3 greenhouse gas emissions: Downstream value chain
         "6763e553-a72b-4872-815c-b5c42630a58c", # Gross Scope 3 greenhouse gas emissions: Transport
         "9f19d32c-2483-4794-a36e-c91e326e8bc9", # Gross Scope 3 greenhouse gas emissions: Upstream value chain
-        "e4254451-da4a-4473-b3de-5c7573ef403a" # Percentage of Gross Scope 3 greenhouse gas emissions calculated using primary data obtained from suppliers or other value chain partners
     )
 
     scope3_within <- df_merged_gt |>
@@ -1389,5 +1385,8 @@ if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
     )
 }
 
+```
+```{r}
+View(df_merged_gt)
 ```
 
