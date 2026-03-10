@@ -97,3 +97,8 @@ To reproduce the main analysis on root level:
 ```bash
 quarto render analyses/analyses.qmd
 ```
+
+## GUIDE-LLM reporting checklist
+
+This repository includes the completed [GUIDE-LLM reporting checklist](https://sfeuerriegel.github.io/llm-checklist/) for the study:
+[supplementary_materials/GUIDE-LLM_checklist.pdf](supplementary_materials/GUIDE-LLM_checklist.pdf)
