@@ -1386,7 +1386,4 @@ if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
 }
 
 ```
-```{r}
-View(df_merged_gt)
-```
 
