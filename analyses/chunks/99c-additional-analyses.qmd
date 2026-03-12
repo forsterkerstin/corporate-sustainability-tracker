@@ -306,7 +306,7 @@ selected_indicators <- c("Employee turnover [%]",
                          "# Training hours per employee",
                          "# Days lost to work-related injuries, ill health, and fatalities among employees",
                          #"Employees entitled to take family-related leaves [%]",
-                         "Female employees in top managment [%]",
+                         "Female employees in top management [%]",
                          "Gender pay gap [%]",
                          "Annual remuneration ratio [%]",
                          "# Complaints filed by own workforce",
@@ -442,7 +442,7 @@ plotting <- function(indicator) {
     # ) +
     if (indicator %in% c("Employee turnover [%]",
                          "Employees covered by collective bargaining agreements [%]",
-                         "Female employees in top managment [%]",
+                         "Female employees in top management [%]",
                          "Gender pay gap [%]",
                          "Annual remuneration ratio [%]")) {
       p <- p + scale_y_continuous(
@@ -1072,7 +1072,7 @@ selected_indicators <- c(
   "Employees covered by collective bargaining agreements [%]",
   "# Training hours per employee",
   "# Days lost to work-related injuries, ill health, and fatalities among employees",
-  "Female employees in top managment [%]",
+  "Female employees in top management [%]",
   "Gender pay gap [%]",
   "Annual remuneration ratio [%]",
   "# Complaints filed by own workforce",
@@ -1179,7 +1179,7 @@ n_values <- temp_flagged |>
 linear_indicators <- c(
   "Employee turnover [%]",
   "Employees covered by collective bargaining agreements [%]",
-  "Female employees in top managment [%]",
+  "Female employees in top management [%]",
   "Gender pay gap [%]",
   "Annual remuneration ratio [%]"
 )
@@ -2285,7 +2285,7 @@ selected_indicators <- c(
   "Employees covered by collective bargaining agreements [%]",
   "# Training hours per employee",
   "# Days lost to work-related injuries, ill health, and fatalities among employees",
-  "Female employees in top managment [%]",
+  "Female employees in top management [%]",
   "Gender pay gap [%]",
   "Annual remuneration ratio [%]",
   "# Complaints filed by own workforce",
@@ -2373,7 +2373,7 @@ n_values <- temp_flagged |>
 linear_indicators <- c(
   "Employee turnover [%]",
   "Employees covered by collective bargaining agreements [%]",
-  "Female employees in top managment [%]",
+  "Female employees in top management [%]",
   "Gender pay gap [%]",
   "Annual remuneration ratio [%]"
 )
@@ -3400,7 +3400,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                           "# Training hours per employee",
                           "# Days lost to work-related injuries, ill health, and fatalities among employees",
                           #"Employees entitled to take family-related leaves [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]",
                           "# Complaints filed by own workforce",
@@ -3514,7 +3514,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     
       if (indicator %in% c("Employee turnover [%]",
                           "Employees covered by collective bargaining agreements [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]")) {
         p <- p + scale_y_continuous(
@@ -4169,7 +4169,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                           "# Training hours per employee",
                           "# Days lost to work-related injuries, ill health, and fatalities among employees",
                           #"Employees entitled to take family-related leaves [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]",
                           "# Complaints filed by own workforce",
@@ -4285,7 +4285,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     
       if (indicator %in% c("Employee turnover [%]",
                           "Employees covered by collective bargaining agreements [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]")) {
         p <- p + scale_y_continuous(
@@ -4941,7 +4941,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                           "# Training hours per employee",
                           "# Days lost to work-related injuries, ill health, and fatalities among employees",
                           #"Employees entitled to take family-related leaves [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]",
                           "# Complaints filed by own workforce",
@@ -5057,7 +5057,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     
       if (indicator %in% c("Employee turnover [%]",
                           "Employees covered by collective bargaining agreements [%]",
-                          "Female employees in top managment [%]",
+                          "Female employees in top management [%]",
                           "Gender pay gap [%]",
                           "Annual remuneration ratio [%]")) {
         p <- p + scale_y_continuous(

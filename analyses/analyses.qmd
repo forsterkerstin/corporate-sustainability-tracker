@@ -271,7 +271,7 @@ renamer_soc <- c(
     "Average number of training hours per employee and (or) non-employee: Employees" = "# Training hours per employee",
     "Number of recordable work-related accidents: Employees" = "# Work-related accidents (employees)",
     "Percentage of employees entitled to take family-related leaves" = "Employees entitled to take family-related leaves [%]",
-    "Percentage of employees at top management level: Female" = "Female employees in top managment [%]",
+    "Percentage of employees at top management level: Female" = "Female employees in top management [%]",
     "Gender pay gap" = "Gender pay gap [%]",
     "Number of complaints filed through channels for people in own workforce to raise concerns" = "# Complaints filed by own workforce",
     "Number of severe human rights incidents connected to own workforce" = "# Severe human rights incidents connected to own workforce",

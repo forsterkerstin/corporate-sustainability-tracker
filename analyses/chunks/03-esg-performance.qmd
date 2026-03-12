@@ -342,7 +342,7 @@ selected_indicators <- c(
     "# Training hours per employee",
     "# Days lost to work-related injuries, ill health, and fatalities among employees",
     # "Employees entitled to take family-related leaves [%]",
-    "Female employees in top managment [%]",
+    "Female employees in top management [%]",
     "Gender pay gap [%]",
     "Annual remuneration ratio [%]",
     "# Complaints filed by own workforce",
