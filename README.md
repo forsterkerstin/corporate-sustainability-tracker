@@ -115,6 +115,10 @@ python corporate_sustainability_tracker/main.py
   ```
   jupyter notebook notebooks/prepare_data.ipynb
   ```
+- To prepare the supplementary analyses:
+  ```
+  jupyter notebook notebooks/prepare_supplementary_analyses.ipynb
+  ```
 
 ### Reproduce the analysis
 The analysis is conducted in R using [Quarto](https://quarto.org). The core script `analyses.qmd` compiles the main results. Additional `.qmd` modules in the `chunks/` folder contain supplementary and figure-specific code.
