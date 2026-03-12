@@ -125,8 +125,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             firm, year, primary_sics_sector, transp,
             mkcapUSD_lagged, salesUSD,
             ref_esg_score, ref_esg_controversies_score_lagged,
-            msci_company_rating_lagged,
-            reprisk_rating_num_lagged
+            msci_company_rating_lagged
         ) |>
         mutate(
             ref_esg_score_n = recode(ref_esg_score, !!!esg_rating_map),
@@ -160,7 +159,6 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
     df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
     df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
-    df_reprisk_rating_plot <- make_grouped_df(df2, "reprisk_rating_num_lagged")
 }
 ```
 
@@ -258,7 +256,6 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
     violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
     violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
-    # violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
 
     p <- violin_mkcap + violin_msci_rating + violin_controversies +
         plot_layout(ncol = 3) +
@@ -303,7 +300,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
         msci_company_rating_n = recode(msci_company_rating_lagged, !!!msci_company_rating_map),
         mkcapUSD_log = log(mkcapUSD_lagged)
       ) |> 
-      select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n, reprisk_rating_num_lagged) |> 
+      select(firm, year, sector, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |> 
       group_by(year) |> 
       mutate(
         # market cap dummies
@@ -316,11 +313,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     
         # controversies dummies
         q10_contr = ref_esg_contr_n <= stats::quantile(ref_esg_contr_n, 0.10, na.rm = TRUE),
-        q90_contr = ref_esg_contr_n >= stats::quantile(ref_esg_contr_n, 0.90, na.rm = TRUE),
-        
-        # reprisk rating dummies
-        q10_reprisk_rating = reprisk_rating_num_lagged <= stats::quantile(reprisk_rating_num_lagged, 0.10, na.rm = TRUE),
-        q90_reprisk_rating = reprisk_rating_num_lagged >= stats::quantile(reprisk_rating_num_lagged, 0.90, na.rm = TRUE)
+        q90_contr = ref_esg_contr_n >= stats::quantile(ref_esg_contr_n, 0.90, na.rm = TRUE)
         
       ) |> 
       ungroup()
@@ -347,8 +340,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     main,
     "mkcap"  = c("q10_mkcap",  "q90_mkcap"),
     "rating" = c("q10_rating", "q90_rating"),
-    "contr"  = c("q10_contr",  "q90_contr"),
-    #"reprisk" = c("q10_reprisk_rating", "q90_reprisk_rating")
+    "contr"  = c("q10_contr",  "q90_contr")
   )
 
   # build RHS
@@ -533,435 +525,11 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 }
 ```
 
-<!-- ```{r panel regression continuous} -->
-<!-- if (file.exists(file.path(datasets_dir, "firm_data.csv"))) { -->
-
-<!--   make_panel_cont_tex <- function(data, main_var, main_label, controls, stars) { -->
-
-<!--     rhs_main_only <- main_var -->
-<!--     rhs_full      <- paste(c(main_var, controls), collapse = " + ") -->
-
-<!--     f0 <- stats::as.formula(paste0("transp ~ ", rhs_main_only)) -->
-<!--     f1 <- stats::as.formula(paste0("transp ~ ", rhs_full)) -->
-<!--     f2 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | year")) -->
-<!--     f3 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector")) -->
-<!--     f4 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year")) -->
-<!--     f5 <- stats::as.formula(paste0("transp ~ ", rhs_full, " | sector^year + firm")) -->
-
-<!--     models <- list( -->
-<!--       fixest::feols(f0, data = data, vcov = ~firm), -->
-<!--       fixest::feols(f1, data = data, vcov = ~firm), -->
-<!--       fixest::feols(f2, data = data, vcov = ~firm), -->
-<!--       fixest::feols(f3, data = data, vcov = ~firm), -->
-<!--       fixest::feols(f4, data = data, vcov = ~firm), -->
-<!--       fixest::feols(f5, data = data, vcov = ~firm) -->
-<!--     ) -->
-
-<!--     omit_regex <- paste0("^(", paste(controls, collapse = "|"), ")$") -->
-
-<!--     coef_map <- c( -->
-<!--       "(Intercept)" = "Constant", -->
-<!--       setNames(main_label, main_var) -->
-<!--     ) -->
-
-<!--     modelsummary::modelsummary( -->
-<!--       models, -->
-<!--       stars = stars, -->
-<!--       coef_map = coef_map, -->
-<!--       coef_omit = omit_regex, -->
-<!--       gof_omit = "^(?!.*(Num.Obs.|R2 Adj.|FE))", -->
-<!--       output = "latex", -->
-<!--       escape = FALSE -->
-<!--     ) |> -->
-<!--       as.character() -->
-<!--   } -->
-
-<!--   stars_def <- c("***" = .001, "**" = .01, "*" = 0.05) -->
-
-<!--   panel_a_cont <- make_panel_cont_tex( -->
-<!--     data = df2_enriched, -->
-<!--     main_var = "mkcapUSD_log", -->
-<!--     main_label = "Log market capitalization", -->
-<!--     controls = c("msci_company_rating_n", "reprisk_rating_num_lagged"), -->
-<!--     stars = stars_def -->
-<!--   ) -->
-
-<!--   panel_b_cont <- make_panel_cont_tex( -->
-<!--     data = df2_enriched, -->
-<!--     main_var = "msci_company_rating_n", -->
-<!--     main_label = "ESG rating", -->
-<!--     controls = c("mkcapUSD_log", "reprisk_rating_num_lagged"), -->
-<!--     stars = stars_def -->
-<!--   ) -->
-
-<!--   panel_c_cont <- make_panel_cont_tex( -->
-<!--     data = df2_enriched, -->
-<!--     main_var = "reprisk_rating_num_lagged", -->
-<!--     main_label = "RepRisk Rating", -->
-<!--     controls = c("mkcapUSD_log", "msci_company_rating_n"), -->
-<!--     stars = stars_def -->
-<!--   ) -->
-
-<!--   A_cont <- extract_blocks(panel_a_cont) -->
-<!--   B_cont <- extract_blocks(panel_b_cont) -->
-<!--   C_cont <- extract_blocks(panel_c_cont) -->
-
-<!--   gofA_cont <- A_cont$gof_lines -->
-<!--   gofA_cont <- gsub("Num\\.Obs\\.", "$N$", gofA_cont) -->
-<!--   gofA_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofA_cont) -->
-
-<!--   gofB_cont <- B_cont$gof_lines -->
-<!--   gofB_cont <- gsub("Num\\.Obs\\.", "$N$", gofB_cont) -->
-<!--   gofB_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofB_cont) -->
-
-<!--   gofC_cont <- C_cont$gof_lines -->
-<!--   gofC_cont <- gsub("Num\\.Obs\\.", "$N$", gofC_cont) -->
-<!--   gofC_cont <- gsub("R2 Adj\\.", "Adj. $R^2$", gofC_cont) -->
-
-<!--   # FE rows (same structure as dummy version) -->
-<!--   fe_rows_cont <- c( -->
-<!--     "Controls         & No & Yes & Yes & Yes & Yes & Yes \\\\", -->
-<!--     "Year FE          & No & No  & Yes & No  & --- & --- \\\\", -->
-<!--     "Sector FE        & No & No  & No  & Yes & --- & --- \\\\", -->
-<!--     "Year $\\times$ Sector FE & No & No & No & No & Yes & Yes \\\\", -->
-<!--     "Company FE       & No & No  & No  & No & No  & Yes \\\\" -->
-<!--   ) -->
-
-<!--   footnote_cont <- "This table reports regression estimates where the dependent variable is the company-level transparency score, calculated as the number of reported ESG indicators divided by all indicators listed in ESRS. Each panel enters the focal determinant as a continuous regressor. Panel A reports results using log lagged market capitalization as the main independent variable. Panel B uses the lagged ESG rating from MSCI (coded 1--7), and Panel C uses the lagged RepRisk Rating (numeric). Model~(1) includes only the focal determinant and no additional controls. Models~(2)--(6) additionally include the remaining two determinants as continuous controls. The models vary by the set of included fixed effects (FE): Model~(1) and Model~(2) include no fixed effects; Model~(3) includes year fixed effects; Model~(4) includes sector fixed effects; Model~(5) includes year-by-sector fixed effects; and Model~(6) includes company fixed effects. Standard errors are clustered by company and reported in parentheses. Significance levels: ***, **, * correspond to 0.1\\%, 1\\%, and 5\\%, respectively. Estimates are based on OLS regression." -->
-
-<!--   ltx_cont <- c( -->
-<!--     "\\begin{table}[!htbp]", -->
-<!--     "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}", -->
-<!--     "\\caption{\\label{tab:regression-transp-continuous}Determinants of transparency (continuous regressors)}", -->
-<!--     "\\centering", -->
-<!--     "\\begin{threeparttable}", -->
-<!--     "", -->
-<!--     # --- Panel A -->
-<!--     "\\multicolumn{6}{l}{\\textit{Panel A: Transparency explained by market capitalization}} \\\\", -->
-<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
-<!--     "\\toprule", -->
-<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
-<!--     "\\midrule", -->
-<!--     A_cont$coef_block, -->
-<!--     "\\midrule", -->
-<!--     fe_rows_cont, -->
-<!--     "\\midrule", -->
-<!--     gofA_cont, -->
-<!--     "\\bottomrule", -->
-<!--     "\\end{tabularx}", "", "\\vspace{1em}", -->
-
-<!--     # --- Panel B -->
-<!--     "\\multicolumn{6}{l}{\\textit{Panel B: Transparency explained by ESG rating}} \\\\", -->
-<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
-<!--     "\\toprule", -->
-<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
-<!--     "\\midrule", -->
-<!--     B_cont$coef_block, -->
-<!--     "\\midrule", -->
-<!--     fe_rows_cont, -->
-<!--     "\\midrule", -->
-<!--     gofB_cont, -->
-<!--     "\\bottomrule", -->
-<!--     "\\end{tabularx}", "", "\\vspace{1em}", -->
-
-<!--     # --- Panel C -->
-<!--     "\\multicolumn{6}{l}{\\textit{Panel C: Transparency explained by RepRisk Rating}} \\\\", -->
-<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} *{6}{>{\\centering\\arraybackslash}X} }", -->
-<!--     "\\toprule", -->
-<!--     " & (1) & (2) & (3) & (4) & (5) & (6) \\\\", -->
-<!--     "\\midrule", -->
-<!--     C_cont$coef_block, -->
-<!--     "\\midrule", -->
-<!--     fe_rows_cont, -->
-<!--     "\\midrule", -->
-<!--     gofC_cont, -->
-<!--     "\\bottomrule", -->
-<!--     "\\end{tabularx}", "", -->
-
-<!--     # Notes -->
-<!--     "\\begin{tablenotes}[para, flushleft]", -->
-<!--     "\\scriptsize", -->
-<!--     "\\fontsize{7pt}{7pt}\\linespread{1.2}\\selectfont", -->
-<!--     sprintf("\\item \\textbf{Notes:} %s", footnote_cont), -->
-<!--     "\\end{tablenotes}", -->
-<!--     "\\end{threeparttable}", -->
-<!--     "\\end{table}" -->
-<!--   ) -->
-
-<!--   writeLines(paste(ltx_cont, collapse = "\n"), "tab-regression_transp_continuous.tex") -->
-<!-- } -->
-<!-- ``` -->
-
-
-<!-- ```{r panel regression time trend} -->
-<!-- if (file.exists(file.path(datasets_dir, "firm_data.csv"))) { -->
-
-<!--   # Build firm-year panel with regressors -->
-<!--   df_trend <- df |> -->
-<!--     dplyr::group_by(firm, year) |> -->
-<!--     dplyr::summarise(transp = mean(exists), .groups = "drop") |> -->
-<!--     add_all_firm_data() |> -->
-<!--     dplyr::mutate( -->
-<!--       sector = primary_sics_sector, -->
-<!--       mkcapUSD_log = log(mkcapUSD_lagged), -->
-<!--       msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map), -->
-<!--       ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map) -->
-<!--     ) |> -->
-<!--     dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) -->
-
-<!--   # Spec (1): year FE + sector FE + country FE -->
-<!--   m1 <- fixest::feols( -->
-<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + sector + country, -->
-<!--     data = df_trend, -->
-<!--     vcov = ~ firm -->
-<!--   ) -->
-
-<!--   # Spec (2): year FE + firm FE -->
-<!--   m2 <- fixest::feols( -->
-<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | year + firm, -->
-<!--     data = df_trend, -->
-<!--     vcov = ~ firm -->
-<!--   ) -->
-
-<!--   # Spec (3): sector × year FE  (no separate year FE) -->
-<!--   m3 <- fixest::feols( -->
-<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n | sector^year, -->
-<!--     data = df_trend, -->
-<!--     vcov = ~ firm -->
-<!--   ) -->
-
-<!--   # output table -->
-<!--   tex_raw <- modelsummary::modelsummary( -->
-<!--     list( -->
-<!--       "Sector+Country FE" = m1, -->
-<!--       "Firm FE" = m2, -->
-<!--       "Sector$\\times$Year FE" = m3 -->
-<!--     ), -->
-<!--     stars = c("***" = .01, "**" = .05, "*" = 0.1), -->
-<!--     coef_map = c( -->
-<!--       "mkcapUSD_log" = "Log market cap (lagged)", -->
-<!--       "msci_company_rating_n" = "ESG rating (lagged)", -->
-<!--       "ref_esg_contr_n" = "ESG controversies (lagged)" -->
-<!--     ), -->
-<!--     gof_omit = ".*", -->
-<!--     output = "latex", -->
-<!--   ) |> -->
-<!--     as.character() -->
-
-<!--   tex_lines <- unlist(strsplit(tex_raw, "\n")) -->
-
-<!--   # extract coefficient block between \midrule and \bottomrule -->
-<!--   i_mid <- which(grepl("\\\\midrule", tex_lines))[1] -->
-<!--   i_bot <- which(grepl("\\\\bottomrule", tex_lines))[1] -->
-<!--   coef_block <- tex_lines[(i_mid + 1):(i_bot - 1)] -->
-
-<!--   # compute GOF -->
-<!--   N1 <- stats::nobs(m1); N2 <- stats::nobs(m2); N3 <- stats::nobs(m3) -->
-<!--   ar2_1 <- unname(fixest::fitstat(m1, "ar2"))  # adjusted R2 -->
-<!--   ar2_2 <- unname(fixest::fitstat(m2, "ar2")) -->
-<!--   ar2_3 <- unname(fixest::fitstat(m3, "ar2")) -->
-
-<!--   # format numbers -->
-<!--   fmtN  <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE) -->
-<!--   fmtR2 <- function(x) sprintf("%.3f", x) -->
-
-<!--   # FE rows -->
-<!--   fe_rows <- c( -->
-<!--     "\\midrule", -->
-<!--     sprintf("Year FE            & %s & %s & %s \\\\", "Yes", "Yes", "Yes"), -->
-<!--     sprintf("Sector FE          & %s & %s & %s \\\\", "Yes", "No",  "---"), -->
-<!--     sprintf("Country FE         & %s & %s & %s \\\\", "Yes", "No",  "No"), -->
-<!--     sprintf("Firm FE            & %s & %s & %s \\\\", "No",  "Yes", "No"), -->
-<!--     sprintf("Sector $\\times$ Year FE & %s & %s & %s \\\\", "No", "No", "Yes"), -->
-<!--     "\\midrule", -->
-<!--     sprintf("$N$               & %s & %s & %s \\\\", fmtN(N1), fmtN(N2), fmtN(N3)), -->
-<!--     sprintf("Adj. $R^2$        & %s & %s & %s \\\\", fmtR2(ar2_1), fmtR2(ar2_2), fmtR2(ar2_3)) -->
-<!--   ) -->
-
-<!--   footnote_text <- paste0( -->
-<!--     "This table reports firm-year panel regressions where the dependent variable is the company-level transparency score. ", -->
-<!--     "Regressors are log market capitalization (lagged), lagged ESG rating, and lagged ESG controversies score. ", -->
-<!--     "All specifications include year fixed effects. Model (1) adds sector and country fixed effects. ", -->
-<!--     "Model (2) adds firm fixed effects. Model (3) includes sector-by-year fixed effects. ", -->
-<!--     "Standard errors are clustered by compnay and reported in parantheses. Significance levels: ***, **, * correspond to 1\\%, 5\\%, and 10\\%." -->
-<!--   ) -->
-
-<!--   # table scaffold -->
-<!--   ltx <- c( -->
-<!--     "\\begin{table}[!htbp]", -->
-<!--     "\\fontsize{9pt}{9pt}\\selectfont\\renewcommand{\\arraystretch}{1.2}", -->
-<!--     "\\caption{\\label{tab:regression-transp-controls}Transparency and firm characteristics}", -->
-<!--     "\\centering", -->
-<!--     "\\begin{threeparttable}", -->
-<!--     "", -->
-<!--     "\\begin{tabularx}{\\textwidth}{ p{5cm} ccc }", -->
-<!--     "\\toprule", -->
-<!--     " & Sector+Country FE & Firm FE & Sector$\\times$Year FE \\\\", -->
-<!--     "\\midrule", -->
-<!--     coef_block, -->
-<!--     fe_rows, -->
-<!--     "\\bottomrule", -->
-<!--     "\\end{tabularx}", -->
-<!--     "", -->
-<!--     "\\begin{tablenotes}[para, flushleft]", -->
-<!--     "\\scriptsize", -->
-<!--     "\\fontsize{10pt}{10pt}\\linespread{1.2}\\selectfont", -->
-<!--     sprintf("\\item \\textbf{Notes:} %s", footnote_text), -->
-<!--     "\\end{tablenotes}", -->
-<!--     "\\end{threeparttable}", -->
-<!--     "\\end{table}" -->
-<!--   ) -->
-
-<!--   out_tex <- here::here("analyses/chunks/tab-regression_transp_trend_controls.tex") -->
-<!--   writeLines(paste(ltx, collapse = "\n"), out_tex) -->
-<!-- } -->
-
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- # Plot year fixed effects from the firm-FE model (m2) -->
-
-<!-- # helper -->
-<!-- `%||%` <- function(a, b) if (!is.null(a)) a else b -->
-
-<!-- # extract year FE -->
-<!-- fe_obj <- tryCatch(fixest::fixef(m2, se = TRUE), error = function(e) NULL) -->
-
-<!-- if (!is.null(fe_obj) && !is.null(fe_obj$year) && is.data.frame(fe_obj$year)) { -->
-<!--   # data.frame with rownames = years -->
-<!--   yr_df <- fe_obj$year -->
-
-<!--   # pick estimate / se columns -->
-<!--   est_col <- intersect(c("fixef", "Estimate", "estimate"), names(yr_df)) -->
-<!--   if (length(est_col) == 0) est_col <- names(yr_df)[1] -->
-
-<!--   se_col <- intersect(c("se", "Std. Error", "Std..Error", "std.error"), names(yr_df)) -->
-<!--   if (length(se_col) == 0) se_col <- character(0) -->
-
-<!--   est <- yr_df[[est_col[1]]] -->
-<!--   se  <- if (length(se_col) > 0) yr_df[[se_col[1]]] else rep(NA_real_, length(est)) -->
-
-<!--   names(est) <- rownames(yr_df) -->
-<!--   names(se)  <- rownames(yr_df) -->
-<!-- } else { -->
-<!--   # fallback: estimates only -->
-<!--   est <- fixest::fixef(m2)$year -->
-<!--   se  <- NULL -->
-<!-- } -->
-
-<!-- # robust year parsing -->
-<!-- parse_year <- function(x) as.integer(gsub("^.*?(\\d{4}).*$", "\\1", x)) -->
-
-<!-- year_fe <- tibble::tibble( -->
-<!--   year = parse_year(names(est)), -->
-<!--   fe   = as.numeric(est), -->
-<!--   se   = if (!is.null(se)) as.numeric(se) else NA_real_ -->
-<!-- ) |> -->
-<!--   dplyr::filter(!is.na(year)) |> -->
-<!--   dplyr::arrange(year) -->
-
-<!-- # normalize to base year -->
-<!-- base_year <- min(year_fe$year, na.rm = TRUE) -->
-<!-- base_fe   <- year_fe$fe[year_fe$year == base_year][1] -->
-
-<!-- year_fe <- year_fe |> -->
-<!--   dplyr::mutate( -->
-<!--     fe_rel = fe - base_fe,           # year FE relative to base year -->
-<!--     fe_pp  = 100 * fe_rel,           # transparency is share -> percentage points -->
-<!--     lo_pp  = 100 * (fe_rel - 1.96 * se), -->
-<!--     hi_pp  = 100 * (fe_rel + 1.96 * se) -->
-<!--   ) -->
-
-<!-- # if SEs are missing, re-estimate auxiliary model with year dummies -->
-<!-- if (all(is.na(year_fe$se)) || nrow(year_fe) <= 1) { -->
-
-<!--   data_m2 <- if (exists("df_trend")) df_trend else tryCatch(fixest::get_data(m2), error = function(e) NULL) -->
-<!--   if (is.null(data_m2)) stop("Need df_trend in the environment (the data used for m2).") -->
-
-<!--   # make year numeric -->
-<!--   data_m2 <- data_m2 |> -->
-<!--     dplyr::mutate(year = as.integer(as.character(year))) -->
-
-<!--   base_year <- min(data_m2$year, na.rm = TRUE) -->
-
-<!--   # Auxiliary model: firm FE + explicit year dummies; same controls and clustering -->
-<!--   m2_aux <- fixest::feols( -->
-<!--     transp ~ mkcapUSD_log + msci_company_rating_n + ref_esg_contr_n + fixest::i(year, ref = base_year) | firm, -->
-<!--     data = data_m2, -->
-<!--     vcov = ~ firm -->
-<!--   ) -->
-
-<!--   co <- stats::coef(m2_aux) -->
-<!--   vc <- stats::vcov(m2_aux) -->
-
-<!--   idx <- grep("year::", names(co)) -->
-<!--   if (length(idx) == 0) { -->
-<!--     idx <- grep("\\d{4}", names(co)) -->
-<!--   } -->
-
-<!--   yrs <- parse_year(names(co)[idx]) -->
-<!--   keep <- !is.na(yrs) -->
-
-<!--   est2 <- co[idx][keep] -->
-<!--   se2  <- sqrt(diag(vc))[idx][keep] -->
-<!--   yrs  <- yrs[keep] -->
-
-<!--   # build full series incl. base year = 0 -->
-<!--   year_fe <- tibble::tibble( -->
-<!--     year = c(base_year, yrs), -->
-<!--     fe_pp = 100 * c(0, as.numeric(est2)), -->
-<!--     se_pp = 100 * c(NA_real_, as.numeric(se2)) -->
-<!--   ) |> -->
-<!--     dplyr::arrange(year) |> -->
-<!--     dplyr::mutate( -->
-<!--       lo_pp = fe_pp - 1.96 * se_pp, -->
-<!--       hi_pp = fe_pp + 1.96 * se_pp -->
-<!--     ) -->
-
-<!--   year_fe <- year_fe |> -->
-<!--     dplyr::mutate(se = se_pp / 100) |> -->
-<!--     dplyr::select(year, fe_pp, lo_pp, hi_pp, se) -->
-<!-- } -->
-
-
-<!-- p_yearfe <- ggplot2::ggplot(year_fe, ggplot2::aes(x = year, y = fe_pp)) + -->
-<!--   { if (any(!is.na(year_fe$se))) ggplot2::geom_ribbon( -->
-<!--       ggplot2::aes(ymin = lo_pp, ymax = hi_pp), -->
-<!--       alpha = 0.15, -->
-<!--       na.rm = TRUE -->
-<!--     ) } + -->
-<!--   ggplot2::geom_line(linewidth = 1.1) + -->
-<!--   ggplot2::geom_point(size = 2, stroke = 0.8, shape = 21, fill = "white") + -->
-<!--   ggplot2::scale_x_continuous(breaks = seq(min(year_fe$year), max(year_fe$year), by = 2)) + -->
-<!--   ggplot2::labs( -->
-<!--     title = paste0("Year effects from firm-FE model (base year = ", base_year, ")"), -->
-<!--     y = NULL, x = NULL, color = NULL, fill = NULL -->
-<!--   ) + -->
-<!--   ggplot2::theme_minimal(base_size = 10) + -->
-<!--   ggplot2::theme( -->
-<!--     plot.title = ggplot2::element_text(hjust = 0.5), -->
-<!--     axis.line = ggplot2::element_line(color = "black"), -->
-<!--     axis.ticks = ggplot2::element_line(color = "black"), -->
-<!--     panel.grid.major.y = ggplot2::element_line(color = "grey80", linetype = "dashed"), -->
-<!--     panel.grid.minor.y = ggplot2::element_blank(), -->
-<!--     panel.grid.major.x = ggplot2::element_blank(), -->
-<!--     panel.grid.minor.x = ggplot2::element_blank() -->
-<!--   ) -->
-
-
-<!-- ggplot2::ggsave( -->
-<!--   filename = here::here("fig", "fig-yearFE-firmFE.pdf"), -->
-<!--   plot = p_yearfe, -->
-<!--   width = 6, height = 3.5, units = "in", dpi = 400, device = grDevices::pdf -->
-<!-- ) -->
-
-<!-- ``` -->
-
 ```{r}
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
   # ----------------------------
-  # options: "rating", "mkcap", "contr", "reprisk"
+  # options: "rating", "mkcap", "contr"
   det_choice <- "rating"
   # ----------------------------
 
@@ -976,7 +544,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
       msci_company_rating_n = dplyr::recode(msci_company_rating_lagged, !!!msci_company_rating_map),
       ref_esg_contr_n = dplyr::recode(ref_esg_controversies_score_lagged, !!!controversy_score_map)
     ) |>
-    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n, reprisk_rating_num_lagged) |>
+    dplyr::select(firm, year, sector, country, transp, mkcapUSD_log, msci_company_rating_n, ref_esg_contr_n) |>
     dplyr::mutate(
       t = year - min(year, na.rm = TRUE)
     )
@@ -989,8 +557,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     det_choice,
     "rating"  = "msci_company_rating_n",
     "mkcap"   = "mkcapUSD_log",
-    "contr"   = "ref_esg_contr_n",
-    "reprisk" = "reprisk_rating_num_lagged"
+    "contr"   = "ref_esg_contr_n"
   )
 
   # within-year q10/q90 dummies for chosen determinant
@@ -1075,8 +642,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     det_choice,
     "rating"  = "ESG rating",
     "mkcap"   = "market capitalization",
-    "contr"   = "ESG controversies score",
-    "reprisk" = "RepRisk rating"
+    "contr"   = "ESG controversies score"
   )
 
   fe_rows <- c(

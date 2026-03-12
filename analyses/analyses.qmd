@@ -62,6 +62,7 @@ library(gridExtra)
 library(stringr)
 library(rlang)
 library(yaml)
+library(jsonlite)
 
 # Load data path from config file
 config <- yaml::read_yaml(here("configs/config.yaml"))

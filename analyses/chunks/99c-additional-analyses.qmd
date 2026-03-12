@@ -769,11 +769,9 @@ knitr::include_graphics(here("fig/fig-gov-impacts-early-adop.pdf"))
 #| fig-width: 15
 #| fig-height: 16
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 constant_reporters <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/constant_reporters.json")
-) # TEMP: decide on where JSON file should be stored
+  here::here("data/processed/constant_reporters.json")
+)
 
 selected_indicators <- c(
     "Total scope 1 emissions [tCO₂eq]",
@@ -1064,11 +1062,9 @@ knitr::include_graphics(here("fig/fig-env-impacts-constant-reporters.pdf"))
 #| fig-width: 15
 #| fig-height: 16
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 constant_reporters <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/constant_reporters.json")
-) # TEMP: decide on where JSON file should be stored
+  here::here("data/processed/constant_reporters.json")
+)
 
 
 selected_indicators <- c(
@@ -1312,11 +1308,9 @@ knitr::include_graphics(here("fig/fig-soc-impacts-constant-reporters.pdf"))
 #| fig-width: 15
 #| fig-height: 5.5
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 constant_reporters <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/constant_reporters.json")
-) # TEMP: decide on where JSON file should be stored
+  here::here("data/processed/constant_reporters.json")
+)
 
 selected_indicators <- c(
   "Independent board members [%]",
@@ -1545,8 +1539,6 @@ knitr::include_graphics(here("fig/fig-gov-impacts-constant-reporters.pdf"))
 #| fig-width: 10
 #| fig-height: 4
 
-library(jsonlite) # TEMP: append to analyes-qmd and requirements.txt
-
 std_levels <- c(
     "Climate change",
     "Pollution",
@@ -1575,8 +1567,8 @@ df <- df |> mutate(standard_topic = ifelse(standard_topic == "General", "Governa
 
 # load list of high-quality company-years
 hq_json <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/top_quality_documents_yearly.json")
-) # TEMP: decide on storage location 
+  here::here("data/processed/top_quality_documents_yearly.json")
+)
 
 hq_keys <- hq_json$top_quality_documents_yearly
 
@@ -1661,14 +1653,11 @@ ggsave(
 )
 
 knitr::include_graphics(here("fig/fig-transparency_trend_high_quality.pdf"))
-
 ```
 
 ```{r}
 #| fig-width: 5
 #| fig-height: 6
-
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
 
 shapes_line <- c(
     "Climate change"   = 16,
@@ -1698,8 +1687,8 @@ temp <- temp |> mutate(standard_topic = ifelse(standard_topic == "General", "Gov
 
 # load list of high-quality company-years
 hq_json <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/top_quality_documents_yearly.json")
-) # TEMP: decide on storage location for file
+  here::here("data/processed/top_quality_documents_yearly.json")
+)
 hq_keys <- hq_json$top_quality_documents_yearly
 
 # ensure company_year exists (base-pipe friendly)
@@ -1846,15 +1835,13 @@ knitr::include_graphics(here("fig/fig-transparency_high_quality.pdf"))
 #| fig-width: 9.5
 #| fig-height: 5
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 # Updated violin plot with top vs bottom 10% (vs middle 80%) - HIGH QUALITY firm-years only
 if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 
     # load list of high-quality company-years
     hq_json <- jsonlite::fromJSON(
-        here::here("data/raw/datasets/top_quality_documents_yearly.json")
-    ) # TEMP: decide on storage location for file
+        here::here("data/processed/top_quality_documents_yearly.json")
+    )
     hq_keys <- hq_json$top_quality_documents_yearly
 
     # ensure company_year exists in df (base-pipe friendly)
@@ -1897,8 +1884,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
             firm, year, primary_sics_sector, transp,
             mkcapUSD_lagged, salesUSD,
             ref_esg_score, ref_esg_controversies_score_lagged,
-            msci_company_rating_lagged,
-            reprisk_rating_num_lagged
+            msci_company_rating_lagged
         ) |>
         dplyr::mutate(
             ref_esg_score_n = dplyr::recode(ref_esg_score, !!!esg_rating_map),
@@ -1931,7 +1917,6 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # df_rating_plot <- make_grouped_df(df2, "ref_esg_score_n")
     df_controversies_plot <- make_grouped_df(df2, "ref_esg_controversies_score_n")
     df_msci_plot <- make_grouped_df(df2, "msci_company_rating_n")
-    # df_reprisk_rating_plot <- make_grouped_df(df2, "reprisk_rating_num_lagged")
 
     # Function  to compare means
     compare_means <- function(df, group_var = "group", target_group = "Top 10%", reference_group = "Middle 80%") {
@@ -2000,7 +1985,6 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # violin_rating <- make_violin_plot(df_rating_plot, "ESG rating")
     violin_controversies <- make_violin_plot(df_controversies_plot, "ESG controversies score")
     violin_msci_rating <- make_violin_plot(df_msci_plot, "ESG rating")
-    # violin_reprisk_rating <- make_violin_plot(df_reprisk_rating_plot, "RepRisk Rating")
     
     p <- violin_mkcap + violin_msci_rating + violin_controversies +
         patchwork::plot_layout(ncol = 3) +
@@ -2030,12 +2014,10 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 #| fig-width: 15
 #| fig-height: 16
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 # load list of high-quality company-years
 hq_json <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/top_quality_documents_yearly.json")
-) # TEMP: decide on location of storage for list
+  here::here("data/processed/top_quality_documents_yearly.json")
+) 
 
 hq_keys <- hq_json$top_quality_documents_yearly
 
@@ -2291,12 +2273,10 @@ knitr::include_graphics(here::here("fig/fig-env-impacts-high-quality-firmyears.p
 #| fig-width: 15
 #| fig-height: 16
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 # load list of high-quality company-years
 hq_json <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/top_quality_documents_yearly.json")
-) # TEMP: decide on location of storage for list
+  here::here("data/processed/top_quality_documents_yearly.json")
+) 
 
 hq_keys <- hq_json$top_quality_documents_yearly
 
@@ -2523,12 +2503,10 @@ knitr::include_graphics(here("fig/fig-soc-impacts-high-quality-firmyears.pdf"))
 #| fig-width: 15
 #| fig-height: 5.5
 
-library(jsonlite) # TEMP: append to analyses.qmd and requirements.txt
-
 # load list of high-quality company-years
 hq_json <- jsonlite::fromJSON(
-  here::here("data/raw/datasets/top_quality_documents_yearly.json")
-) # TEMP: decide on location of storage for list
+  here::here("data/processed/top_quality_documents_yearly.json")
+)
 
 hq_keys <- hq_json$top_quality_documents_yearly
 
@@ -4664,8 +4642,6 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 }
 ```
 
-
-
 ```{r}
 # reverse-coded
 controversy_score_map <- c(
@@ -5775,6 +5751,5 @@ ggsave(
 knitr::include_graphics(here("fig/fig-scope3-n-per-year.pdf"))
 
 ```
-
 
 \newpage

@@ -4,7 +4,7 @@ required_packages <- c(
   "modelsummary", "fixest", "here", "patchwork", "grid", "scales",
   "data.tree", "DiagrammeR", "vtree", "xtable", "ggnewscale",
   "forcats", "purrr", "gridExtra", "stringr", "rlang", "tinytex",
-  "stringr", "psych", "latex2exp", "yaml"
+  "stringr", "psych", "latex2exp", "yaml", "jsonlite"
 )
 
 # Install missing R packages
