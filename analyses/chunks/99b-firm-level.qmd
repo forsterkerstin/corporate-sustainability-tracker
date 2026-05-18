@@ -162,12 +162,12 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
 }
 ```
 
-<!-- ```{r} -->
-<!-- # After violin plot data creation -->
-<!-- cat("Violin data - reprisk rating summary:\n") -->
-<!-- summary(df_reprisk_rating_plot$reprisk_rating_num_lagged) -->
-<!-- table(df_reprisk_rating_plot$group) -->
-<!-- ``` -->
+```{r}
+# After violin plot data creation
+cat("Violin data - reprisk rating summary:\n")
+summary(df_mkcap_plot$mkcapUSD_lagged)
+table(df_mkcap_plot$group)
+```
 
 
 <!-- ```{r} -->
@@ -213,11 +213,25 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # Function to plot violins
     make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
         df <- df |> drop_na(transp, group)
+        
+        group_levels <- c("Bottom 10%", "Middle 80%", "Top 10%")
+        
+        # Build labels in the same order as group_levels
+        n_by_group <- df |>
+            count(group) |>
+            tibble::deframe()  # named vector: group -> n
+    
+        group_labels <- sapply(group_levels, function(g) {
+            n <- n_by_group[[g]]
+            if (is.null(n)) n <- 0
+            sprintf("%s<br>(*n*&nbsp;=&nbsp;%s)", g, format(n, big.mark = ","))
+        })
 
-        ggplot(df, aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
+        ggplot(df, aes(x = factor(group, levels = group_levels), y = transp)) +
             geom_violin(aes(fill = group), alpha = 0.5) +
             geom_boxplot(width = 0.1, outlier.shape = NA) +
             scale_fill_manual(values = blue_shades) +
+            scale_x_discrete(labels = group_labels) +
             scale_y_continuous(labels = scales::percent, limits = c(0, 0.75), expand = c(0, 0)) +
             labs(x = x_label, y = "Transparency score") +
             theme_minimal(base_size = 10) +
@@ -226,6 +240,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                 panel.border = element_blank(),
                 axis.line = element_line(linewidth = 0.25),
                 axis.ticks = element_line(linewidth = 0.25),
+                axis.text.x = ggtext::element_markdown(lineheight = 1.1),
                 legend.position = "none",
                 axis.text.y = if (x_label == "Market capitalization") element_text() else element_blank(),
                 axis.title.y = if (x_label == "Market capitalization") element_text() else element_blank()

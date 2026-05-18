@@ -1946,11 +1946,25 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
     # Function to plot violins
     make_violin_plot <- function(df, x_label, bracket_y = c(0.65, 0.7)) {
         df <- df |> tidyr::drop_na(transp, group)
+        
+        group_levels <- c("Bottom 10%", "Middle 80%", "Top 10%")
+        
+        # Build labels in the same order as group_levels
+        n_by_group <- df |>
+            dplyr::count(group) |>
+            tibble::deframe()  # named vector: group -> n
+    
+        group_labels <- sapply(group_levels, function(g) {
+            n <- n_by_group[[g]]
+            if (is.null(n)) n <- 0
+            sprintf("%s<br>(*n*&nbsp;=&nbsp;%s)", g, format(n, big.mark = ","))
+        })
 
-        ggplot2::ggplot(df, ggplot2::aes(x = factor(group, levels = c("Bottom 10%", "Middle 80%", "Top 10%")), y = transp)) +
+        ggplot2::ggplot(df, ggplot2::aes(x = factor(group, levels = group_levels), y = transp)) +
             ggplot2::geom_violin(ggplot2::aes(fill = group), alpha = 0.5) +
             ggplot2::geom_boxplot(width = 0.1, outlier.shape = NA) +
             ggplot2::scale_fill_manual(values = blue_shades) +
+            ggplot2::scale_x_discrete(labels = group_labels) +
             ggplot2::scale_y_continuous(labels = scales::percent, limits = c(0, 0.75), expand = c(0, 0)) +
             ggplot2::labs(x = x_label, y = "Transparency score") +
             ggplot2::theme_minimal(base_size = 10) +
@@ -1959,6 +1973,7 @@ if (file.exists(file.path(datasets_dir, "firm_data.csv"))) {
                 panel.border = ggplot2::element_blank(),
                 axis.line = ggplot2::element_line(linewidth = 0.25),
                 axis.ticks = ggplot2::element_line(linewidth = 0.25),
+                axis.text.x = ggtext::element_markdown(lineheight = 1.1),
                 legend.position = "none",
                 axis.text.y = if (x_label == "Market capitalization") ggplot2::element_text() else ggplot2::element_blank(),
                 axis.title.y = if (x_label == "Market capitalization") ggplot2::element_text() else ggplot2::element_blank()

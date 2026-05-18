@@ -1248,7 +1248,7 @@ if (file.exists(file.path(datasets_dir, "refinitiv_validation_set.csv"))) {
         "caca2630-ddc3-43fe-9c41-1d3a206be4e4", # Gross Scope 3 greenhouse gas emissions: Own operations
         "375c568c-e22e-44a8-890b-bb5a59bbace6", # Gross Scope 3 greenhouse gas emissions: Downstream value chain
         "6763e553-a72b-4872-815c-b5c42630a58c", # Gross Scope 3 greenhouse gas emissions: Transport
-        "9f19d32c-2483-4794-a36e-c91e326e8bc9", # Gross Scope 3 greenhouse gas emissions: Upstream value chain
+        "9f19d32c-2483-4794-a36e-c91e326e8bc9" # Gross Scope 3 greenhouse gas emissions: Upstream value chain
     )
 
     scope3_within <- df_merged_gt |>
