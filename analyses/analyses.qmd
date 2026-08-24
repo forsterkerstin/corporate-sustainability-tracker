@@ -32,6 +32,9 @@ keep-tex: true
 
 
 ```{r imports-and-settings}
+# Set to TRUE to drop cells whose model_output repeats a prompt-example literal
+FILTER_BLEED <- FALSE
+
 # Automatically install all required R packages and TeX distribution
 if (file.exists("install_packages.r")) {
   source("install_packages.r")
@@ -100,6 +103,17 @@ options(tinytable_print_rstudio_notebook = "viewer") # for showing in viewer pan
 
 ```{r get-raw-data}
 
+# The numeric literals shown to the model in the config.yaml prompt example
+PROMPT_ARTIFACTS <- c(281002.0, 1118.0, 15.4)
+
+drop_bleed <- function(value_final, model_output) {
+    if (!FILTER_BLEED) {
+        return(value_final)
+    }
+    raw <- as.numeric(stringr::str_match(model_output, "'value':\\s*([0-9.eE+-]+)")[, 2])
+    if_else(raw %in% PROMPT_ARTIFACTS, NA_character_, value_final)
+}
+
 # Use this for ESG performance analysis
 df <- read_csv(file.path(results_dir, "esg_indicators_postprocessed.csv")) |>
     left_join(
@@ -114,6 +128,7 @@ df <- read_csv(file.path(results_dir, "esg_indicators_postprocessed.csv")) |>
     ) |>
     mutate(
         value_final = na_if(value_final, ""),
+        value_final = drop_bleed(value_final, model_output),
         exists = !is.na(value_final),
         topic = factor(topic, c("env", "soc", "gov"))
     ) |>
@@ -133,6 +148,7 @@ df_eval <- read_csv(file.path(results_dir, "esg_indicators_validation.csv")) |>
     ) |>
     mutate(
         value_final = na_if(value_final, ""),
+        value_final = drop_bleed(value_final, model_output),
         exists = !is.na(value_final),
         topic = factor(topic, c("env", "soc", "gov"))
     ) |>

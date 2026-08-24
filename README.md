@@ -81,7 +81,7 @@ For reproducibility, we provide brief metadata for the CSV files used in the pip
 - `report_ids.csv`: Reference file listing the report IDs of the corporate reports included in the dataset.
 
 ### Released output files (`data/processed/results/`)
-- `esg_indicators_postprocessed.csv`: Main postprocessed ESG indicator dataset used in the analyses. The unit of observation is an extracted ESG indicator at the company-year level after postprocessing.
+- `esg_indicators_postprocessed.csv`: Main postprocessed ESG indicator dataset used in the analyses. The unit of observation is an extracted ESG indicator at the company-year level after postprocessing. Note: The analysis code includes an optional filter that excludes observations whose model output exactly matches numerical examples contained in the LLM extraction prompt. Applying this filter does not materially affect the reported results.
 - `esg_indicators_validation.csv`: Validation version of the extracted ESG indicators without currency conversion. This file is used for the manual validation exercises.
 - `reports_per_company_year.csv`: Report-level coverage information by company and year. This file indicates which reports are available and used for each company-year.
 
@@ -127,6 +127,8 @@ To reproduce the main analysis on root level:
 ```bash
 quarto render analyses/analyses.qmd
 ```
+
+The analysis code includes an optional filter for model outputs whose extracted value matches one of the numerical examples contained in the LLM extraction prompt. The filter is disabled by default to reproduce the analyses as originally reported. To apply the filter, set `FILTER_BLEED <- TRUE` in `analyses.qmd`.
 
 ## GUIDE-LLM reporting checklist
 
